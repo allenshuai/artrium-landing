@@ -2,13 +2,14 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTracePositions } from "../contexts/TracePositionsContext";
 import { ARCH_IMAGE_SOURCES } from "../lib/arch-images";
 
 /** Min distance (px) cursor must move before spawning a new trace. Slow movement = no spawn. */
 const MIN_DISTANCE_TO_SPAWN_PX = 48;
 /** Size range for each trace image (px). */
-const TRACE_SIZE_MIN = 72;
-const TRACE_SIZE_MAX = 120;
+const TRACE_SIZE_MIN = 128;
+const TRACE_SIZE_MAX = 220;
 /** How long (ms) until a trace is fully faded and removed. */
 const FADE_DURATION_MS = 950;
 /** Max number of traces on screen (drop oldest if over). */
@@ -31,8 +32,20 @@ function pickRandom<T>(arr: T[]): T {
 
 export function MouseImageTrail() {
   const [traces, setTraces] = useState<Trace[]>([]);
+  const { setPositions } = useTracePositions();
   const lastSpawnRef = useRef<{ x: number; y: number } | null>(null);
   const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setPositions(
+      traces.map((t) => ({
+        left: t.x - t.size / 2,
+        top: t.y - t.size / 2,
+        width: t.size,
+        height: t.size,
+      }))
+    );
+  }, [traces, setPositions]);
 
   const pruneAndFade = useCallback(() => {
     const now = Date.now();

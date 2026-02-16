@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useTracePositions } from "../contexts/TracePositionsContext";
 import { PhotoGridBackground } from "./PhotoGridBackground";
 
 const VIEWBOX = { width: 924.52, height: 191.14 };
@@ -42,8 +43,39 @@ const YELLOW_ARCH_OPACITY_AT_REST = 0.8;
 /** Yellow arch opacity when user is dragging or has dragged it (more transparent so grid shows through). */
 const YELLOW_ARCH_OPACITY_WHILE_MOVED = 0.8;
 
+/** Intersection of trace rect with logo rect, in 0–1 logo-relative coords for mask. */
+function traceHolesInLogo(
+  positions: { left: number; top: number; width: number; height: number }[],
+  logoLeft: number,
+  logoTop: number,
+  logoWidth: number,
+  logoHeight: number
+) {
+  const logoRight = logoLeft + logoWidth;
+  const logoBottom = logoTop + logoHeight;
+  const holes: { x: number; y: number; w: number; h: number }[] = [];
+  for (const t of positions) {
+    const tRight = t.left + t.width;
+    const tBottom = t.top + t.height;
+    const iLeft = Math.max(t.left, logoLeft);
+    const iTop = Math.max(t.top, logoTop);
+    const iRight = Math.min(tRight, logoRight);
+    const iBottom = Math.min(tBottom, logoBottom);
+    if (iLeft < iRight && iTop < iBottom) {
+      holes.push({
+        x: (iLeft - logoLeft) / logoWidth,
+        y: (iTop - logoTop) / logoHeight,
+        w: (iRight - iLeft) / logoWidth,
+        h: (iBottom - iTop) / logoHeight,
+      });
+    }
+  }
+  return holes;
+}
+
 export function ArtriumLogo() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const { positions: tracePositions } = useTracePositions();
   const [overlay, setOverlay] = useState<{
     x: number;
     y: number;
@@ -261,6 +293,31 @@ export function ArtriumLogo() {
           },
         ];
 
+  const logoTraceHoles = useMemo(
+    () =>
+      overlay.mounted && overlay.width > 0 && overlay.height > 0
+        ? traceHolesInLogo(
+            tracePositions,
+            overlay.x,
+            overlay.y,
+            overlay.width,
+            overlay.height
+          )
+        : [],
+    [tracePositions, overlay.mounted, overlay.x, overlay.y, overlay.width, overlay.height]
+  );
+  const logoMaskStyle =
+    logoTraceHoles.length > 0
+      ? {
+          maskImage: "url(#logo-trace-mask)",
+          WebkitMaskImage: "url(#logo-trace-mask)" as const,
+          maskSize: "100% 100%",
+          WebkitMaskSize: "100% 100%",
+          maskPosition: "0 0",
+          WebkitMaskPosition: "0 0",
+        }
+      : undefined;
+
   return (
     <>
       {/* Collage: only when brushing enabled; hidden until fog is drawn so it never flashes on load */}
@@ -286,10 +343,30 @@ export function ArtriumLogo() {
           style={{ width: "100vw", height: "100vh", display: "block" }}
         />
       )}
-      {/* Text logo: below collage overlay when brushing so brushed images can cover it */}
+      {/* Mask def: holes where trace images overlap logo (objectBoundingBox 0–1) */}
+      <svg width={0} height={0} aria-hidden>
+        <defs>
+          <mask
+            id="logo-trace-mask"
+            maskUnits="objectBoundingBox"
+            maskContentUnits="objectBoundingBox"
+            x={0}
+            y={0}
+            width={1}
+            height={1}
+          >
+            <rect x={0} y={0} width={1} height={1} fill="white" />
+            {logoTraceHoles.map((h, i) => (
+              <rect key={i} x={h.x} y={h.y} width={h.w} height={h.h} fill="black" />
+            ))}
+          </mask>
+        </defs>
+      </svg>
+      {/* Text logo: transparent where trace images overlap (mask with holes) */}
       <div
         ref={containerRef}
         className="relative z-30 w-[924.52px] max-w-[90vw] drop-shadow-sm shrink-0"
+        style={logoMaskStyle}
       >
         <svg
           viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`}
