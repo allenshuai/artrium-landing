@@ -37,9 +37,11 @@ export function TicketPopup({
   onClose: () => void;
 }) {
   const [submitActive, setSubmitActive] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<null | "success" | "invalid">(null);
+  const [submitStatus, setSubmitStatus] = useState<null | "success" | "invalid" | "error">(null);
+  const [submitting, setSubmitting] = useState(false);
   const [todayLong, setTodayLong] = useState("");
   const [todayShort, setTodayShort] = useState("");
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const now = new Date();
@@ -50,7 +52,7 @@ export function TicketPopup({
     if (open) setSubmitStatus(null);
   }, [open]);
   useEffect(() => {
-    if (submitStatus !== "invalid") return;
+    if (submitStatus !== "invalid" && submitStatus !== "error") return;
     const t = setTimeout(() => setSubmitStatus(null), 2000);
     return () => clearTimeout(t);
   }, [submitStatus]);
@@ -93,6 +95,7 @@ export function TicketPopup({
             </p>
             <div className="mt-4 flex items-end gap-4">
               <input
+                ref={nameInputRef}
                 type="text"
                 placeholder="Type your name"
                 className="w-36 shrink-0 bg-transparent text-base outline-none placeholder:opacity-70"
@@ -113,21 +116,52 @@ export function TicketPopup({
               />
               <button
                 type="button"
-                onClick={() => {
-                  const email = emailInputRef.current?.value ?? "";
-                  setSubmitStatus(isValidEmail(email) ? "success" : "invalid");
+                disabled={submitting}
+                onClick={async () => {
+                  const name = nameInputRef.current?.value?.trim() ?? "";
+                  const email = emailInputRef.current?.value?.trim() ?? "";
+                  
+                  if (!name) {
+                    setSubmitStatus("invalid");
+                    return;
+                  }
+                  if (!isValidEmail(email)) {
+                    setSubmitStatus("invalid");
+                    return;
+                  }
+                  setSubmitting(true);
+                  setSubmitStatus(null);
+                  try {
+                    const res = await fetch("/api/waitlist", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ name, email }),
+                    });
+                    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+                    if (data?.ok === true) {
+                      setSubmitStatus("success");
+                    } else {
+                      console.error("waitlist error:", data?.error);
+                      setSubmitStatus("error");
+                    }
+
+                  } catch {
+                    setSubmitStatus("error");
+                  } finally {
+                    setSubmitting(false);
+                  }
                 }}
                 onMouseDown={() => setSubmitActive(true)}
                 onMouseUp={() => setSubmitActive(false)}
                 onMouseLeave={() => setSubmitActive(false)}
-                className="shrink-0 px-3 py-1 text-base leading-normal transition-colors"
+                className="shrink-0 px-3 py-1 text-base leading-normal transition-colors disabled:opacity-60"
                 style={{
                   color: submitActive ? CREAM : TICKET_COLOR,
                   backgroundColor: submitActive ? TICKET_COLOR : "transparent",
                   border: `1px solid ${TICKET_COLOR}`,
                 }}
               >
-                Submit
+                {submitting ? "…" : "Submit"}
               </button>
             </div>
             <div className="mt-1.5 flex">
@@ -138,7 +172,7 @@ export function TicketPopup({
                   color:
                     submitStatus === "success"
                       ? "#16a34a"
-                      : submitStatus === "invalid"
+                      : submitStatus === "invalid" || submitStatus === "error"
                         ? "#dc2626"
                         : TICKET_COLOR,
                   opacity: submitStatus ? 1 : 0.8,
@@ -147,8 +181,10 @@ export function TicketPopup({
                 {submitStatus === "success"
                   ? "success!!!"
                   : submitStatus === "invalid"
-                    ? "invalid input"
-                    : "(to become testing user)"}
+                    ? "invalid email"
+                    : submitStatus === "error"
+                      ? "submission failed, try again"
+                      : "(to become testing user)"}
               </p>
             </div>
           </header>
