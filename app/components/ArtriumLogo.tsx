@@ -32,9 +32,11 @@ const PATHS_REST = [
   "M575.26,124.85V56.17h25.29v68.68c0,28.48,15.71,42.86,39.66,42.86s39.66-14.38,39.66-42.86V56.17h25.29v68.68c0,43.66-26.09,66.29-64.96,66.29s-64.95-22.36-64.95-66.29Z",
 ];
 
-const DARK_FILL = "#2d363b";
+const DARK_FILL = "#FFF8F2";
 /** Page cream – matches page background for fog layer. */
 const CREAM = "#FFF8F2";
+/** When false, no collage or brush-reveal (solid logo only). */
+const BRUSHING_ENABLED = false;
 /** Yellow arch opacity when at rest (on the logo). */
 const YELLOW_ARCH_OPACITY_AT_REST = 0.8;
 /** Yellow arch opacity when user is dragging or has dragged it (more transparent so grid shows through). */
@@ -145,7 +147,7 @@ export function ArtriumLogo() {
 
   // Add current overlay position to "revealed" only while user is dragging (not on resize/sync)
   useEffect(() => {
-    if (!drag.active || !overlay.mounted || overlay.width <= 0 || overlay.height <= 0)
+    if (!BRUSHING_ENABLED || !drag.active || !overlay.mounted || overlay.width <= 0 || overlay.height <= 0)
       return;
     const last = lastRevealedRef.current;
     const dist = last
@@ -172,26 +174,27 @@ export function ArtriumLogo() {
     if (!ctx) return;
     ctx.fillStyle = CREAM;
     ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = "white";
-    ctx.globalCompositeOperation = "destination-out";
-    const path = archPathForCanvas.current;
-    // Only show holes where user has dragged; no hole at rest or when position changes from resize
-    const showCurrentPosition = hasUserDragged || drag.active;
-    const allPositions =
-      !showCurrentPosition
-        ? revealedPositions
-        : [
-            ...revealedPositions,
-            { x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height },
-          ];
-    for (const pos of allPositions) {
-      ctx.save();
-      ctx.translate(pos.x, pos.y);
-      ctx.scale(pos.width / VIEWBOX.width, pos.height / VIEWBOX.height);
-      ctx.fill(path);
-      ctx.restore();
+    if (BRUSHING_ENABLED) {
+      ctx.fillStyle = "white";
+      ctx.globalCompositeOperation = "destination-out";
+      const path = archPathForCanvas.current;
+      const showCurrentPosition = hasUserDragged || drag.active;
+      const allPositions =
+        !showCurrentPosition
+          ? revealedPositions
+          : [
+              ...revealedPositions,
+              { x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height },
+            ];
+      for (const pos of allPositions) {
+        ctx.save();
+        ctx.translate(pos.x, pos.y);
+        ctx.scale(pos.width / VIEWBOX.width, pos.height / VIEWBOX.height);
+        ctx.fill(path);
+        ctx.restore();
+      }
+      ctx.globalCompositeOperation = "source-over";
     }
-    ctx.globalCompositeOperation = "source-over";
     setFogDrawnOnce(true);
   }, [revealedPositions, overlay.x, overlay.y, overlay.width, overlay.height, overlay.mounted, hasUserDragged, drag.active, viewportSize.w, viewportSize.h]);
 
@@ -243,10 +246,6 @@ export function ArtriumLogo() {
     };
   }, [drag.active, handlePointerMove, handlePointerUp]);
 
-  const showOutline = drag.active || hasUserDragged;
-  const yellowArchOpacity =
-    showOutline ? YELLOW_ARCH_OPACITY_WHILE_MOVED : YELLOW_ARCH_OPACITY_AT_REST;
-
   // Same positions as fog holes: only show collage overlay where user has brushed (so images can cover logo)
   const showCurrentPosition = hasUserDragged || drag.active;
   const brushMaskPositions =
@@ -264,29 +263,33 @@ export function ArtriumLogo() {
 
   return (
     <>
-      {/* Collage: hidden until fog is drawn so it never flashes on load; sits under canvas so holes reveal it */}
-      <div
-        className="fixed inset-0 z-10"
-        style={{
-          width: "100vw",
-          height: "100vh",
-          pointerEvents: "none",
-          opacity: fogDrawnOnce ? 1 : 0,
-          transition: "opacity 0.15s ease-out",
-        }}
-      >
-        <PhotoGridBackground opacity={1} />
-      </div>
-      {/* Fog canvas: directly above collage so holes reveal collage; cream + holes drawn in effect */}
-      <canvas
-        ref={fogCanvasRef}
-        className="fixed left-0 top-0 z-11 pointer-events-none"
-        style={{ width: "100vw", height: "100vh", display: "block" }}
-      />
+      {/* Collage: only when brushing enabled; hidden until fog is drawn so it never flashes on load */}
+      {BRUSHING_ENABLED && (
+        <div
+          className="fixed inset-0 z-10"
+          style={{
+            width: "100vw",
+            height: "100vh",
+            pointerEvents: "none",
+            opacity: fogDrawnOnce ? 1 : 0,
+            transition: "opacity 0.15s ease-out",
+          }}
+        >
+          <PhotoGridBackground opacity={1} />
+        </div>
+      )}
+      {/* Fog canvas: solid cream (or holes when brushing); only when brushing so page bg shows when disabled */}
+      {BRUSHING_ENABLED && (
+        <canvas
+          ref={fogCanvasRef}
+          className="fixed left-0 top-0 z-11 pointer-events-none"
+          style={{ width: "100vw", height: "100vh", display: "block" }}
+        />
+      )}
       {/* Text logo: below collage overlay when brushing so brushed images can cover it */}
       <div
         ref={containerRef}
-        className="relative z-30 w-full max-w-[min(90vw,1000px)] drop-shadow-sm shrink-0"
+        className="relative z-30 w-[924.52px] max-w-[90vw] drop-shadow-sm shrink-0"
       >
         <svg
           viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`}
@@ -294,25 +297,21 @@ export function ArtriumLogo() {
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
+          {/* Letter A: same fill as rest of logo, no drag/outline */}
+          <path
+            d={A_ARCH_PATH_FOR_OUTLINE}
+            fill={DARK_FILL}
+            fillRule="evenodd"
+          />
           {PATHS_REST.map((d, i) => (
             <path key={i} d={d} fill={DARK_FILL} />
           ))}
           <path d={M_PATH} fill={DARK_FILL} />
-          {/* Outline: thin stroke when yellow arch is dragged away */}
-          {showOutline && (
-            <path
-              d={A_ARCH_PATH_FOR_OUTLINE}
-              fill="none"
-              stroke={DARK_FILL}
-              strokeWidth={0.5}
-              strokeLinejoin="round"
-            />
-          )}
         </svg>
       </div>
 
-      {/* Collage overlay: only visible in brush holes, above logo so images block text when brushing */}
-      {brushMaskPositions.length > 0 && (
+      {/* Collage overlay: only when brushing enabled; visible in brush holes above logo */}
+      {BRUSHING_ENABLED && brushMaskPositions.length > 0 && (
         <>
           <svg width={0} height={0} aria-hidden>
             <defs>
@@ -361,36 +360,6 @@ export function ArtriumLogo() {
         </>
       )}
 
-      {/* Draggable yellow arch = wipe cursor; collage is revealed through fog layer */}
-      {overlay.mounted && overlay.width > 0 && overlay.height > 0 && (
-        <div
-          className="pointer-events-none fixed z-40"
-          style={{
-            left: overlay.x,
-            top: overlay.y,
-            width: overlay.width,
-            height: overlay.height,
-          }}
-        >
-          <svg
-            viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`}
-            className="absolute inset-0 h-full w-full"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-          >
-            <path
-              d={YELLOW_ARCH_OUTER_PATH}
-              fill="#FBF5AF"
-              fillOpacity={yellowArchOpacity}
-              style={{
-                pointerEvents: "auto",
-                cursor: drag.active ? "grabbing" : "grab",
-              }}
-              onPointerDown={handlePointerDown}
-            />
-          </svg>
-        </div>
-      )}
     </>
   );
 }
