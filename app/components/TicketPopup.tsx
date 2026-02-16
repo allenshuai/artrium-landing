@@ -1,7 +1,8 @@
 "use client";
 
+import html2canvas from "html2canvas";
 import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
@@ -43,6 +44,27 @@ export function TicketPopup({
   const [todayShort, setTodayShort] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
+  const ticketDownloadRef = useRef<HTMLDivElement>(null);
+  const [submittedData, setSubmittedData] = useState<{ name: string; email: string } | null>(null);
+
+  const captureAndDownloadTicket = useCallback(() => {
+    const el = ticketDownloadRef.current;
+    if (!el || !submittedData) return;
+    html2canvas(el, {
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#F8F5EE",
+      logging: false,
+    })
+      .then((canvas) => {
+        const link = document.createElement("a");
+        link.download = "artrium-testing-user-ticket.png";
+        link.href = canvas.toDataURL("image/png");
+        link.click();
+      })
+      .catch((err) => console.error("Ticket capture failed:", err));
+  }, [submittedData]);
+
   useEffect(() => {
     const now = new Date();
     setTodayLong(formatTodayLong(now));
@@ -50,12 +72,28 @@ export function TicketPopup({
   }, []);
   useEffect(() => {
     if (open) setSubmitStatus(null);
+    if (!open) setSubmittedData(null);
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, [open]);
   useEffect(() => {
     if (submitStatus !== "invalid" && submitStatus !== "error") return;
     const t = setTimeout(() => setSubmitStatus(null), 2000);
     return () => clearTimeout(t);
   }, [submitStatus]);
+
+  useEffect(() => {
+    if (!submittedData) return;
+    const t = setTimeout(captureAndDownloadTicket, 400);
+    return () => clearTimeout(t);
+  }, [submittedData, captureAndDownloadTicket]);
+
   if (!open) return null;
 
   return (
@@ -65,15 +103,124 @@ export function TicketPopup({
       aria-modal="true"
       aria-label="Artrium Admission"
     >
+      {/* Off-screen ticket for image capture (name/email underlined, no button, no status) */}
+      {submittedData && (
+        <div
+          ref={ticketDownloadRef}
+          className="fixed left-[-9999px] top-0 w-full max-w-3xl"
+          aria-hidden
+        >
+          <div
+            className="flex w-full overflow-hidden bg-[#F8F5EE]"
+            style={{
+              border: `4px solid ${TICKET_COLOR}`,
+              padding: "1.5rem",
+            }}
+          >
+            <div className="flex flex-1 flex-col">
+              <header className="shrink-0">
+                <h2
+                  className="text-6xl font-extralight tracking-tight"
+                  style={{ color: TICKET_COLOR }}
+                >
+                  Artrium Admission
+                </h2>
+                <p className="mt-1 text-lg" style={{ color: TICKET_COLOR }}>
+                  {todayLong || "\u00A0"}
+                </p>
+                <div className="mt-4 flex items-end gap-8">
+                  <span
+                    className="shrink-0 text-base"
+                    style={{
+                      color: TICKET_COLOR,
+                      borderBottom: `1px solid ${TICKET_COLOR}`,
+                      minWidth: "10rem",
+                    }}
+                  >
+                    {submittedData.name}
+                  </span>
+                  <span
+                    className="shrink-0 text-base"
+                    style={{
+                      color: TICKET_COLOR,
+                      borderBottom: `1px solid ${TICKET_COLOR}`,
+                      minWidth: "10rem",
+                    }}
+                  >
+                    {submittedData.email}
+                  </span>
+                </div>
+              </header>
+              <footer className="mt-auto flex items-stretch gap-4 pt-5">
+                <div
+                  className="flex w-20 shrink-0 items-end justify-center"
+                  style={{ backgroundColor: TICKET_COLOR }}
+                >
+                  <img
+                    src="/Ticket_Logo.png"
+                    alt=""
+                    width={80}
+                    height={56}
+                    className="object-contain object-left"
+                  />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col justify-end">
+                  <p
+                    className="min-w-0 text-[11px] leading-snug tracking-tight"
+                    style={{ color: TICKET_COLOR }}
+                  >
+                    Creativity is undefinable, and never fixed to one medium, style, or
+                    identity. It&apos;s a space of becoming, where people speak, shape,
+                    share, and connect. But that space is too often closed off. Access is
+                    limited, language is coded, and opportunities become privileges instead
+                    of shared possibilities.
+                  </p>
+                </div>
+              </footer>
+            </div>
+            <div
+              className="mx-4 w-px shrink-0 border-l border-dashed"
+              style={{ borderColor: TICKET_COLOR }}
+            />
+            <aside className="flex w-[140px] shrink-0 flex-col justify-between">
+              <div>
+                <p className="text-base" style={{ color: TICKET_COLOR }}>
+                  Order Date
+                </p>
+                <p className="text-base font-medium" style={{ color: TICKET_COLOR }}>
+                  {todayShort || "–"}
+                </p>
+                <p className="mt-2 text-base" style={{ color: TICKET_COLOR }}>
+                  Artrium Admission
+                </p>
+                <p className="text-base font-medium" style={{ color: TICKET_COLOR }}>
+                  $0.00
+                </p>
+              </div>
+              <div className="mt-4 flex justify-center">
+                <img
+                  src="/Ticket_QR_Code.svg"
+                  alt=""
+                  width={136}
+                  height={136}
+                  className="object-contain"
+                />
+              </div>
+            </aside>
+          </div>
+        </div>
+      )}
+
       <div
-        className="absolute inset-0 bg-[#3F3A36]/40 backdrop-blur-sm"
+        className="absolute inset-0 bg-[#3F3A36]/40 backdrop-blur-sm cursor-default"
+        style={{ pointerEvents: "auto" }}
         onClick={onClose}
         aria-hidden
       />
       <div
         className="relative flex w-full max-w-3xl overflow-hidden bg-[#F8F5EE] shadow-xl"
         style={{
-          border: `2px solid ${TICKET_COLOR}`,
+          border: `4px solid ${TICKET_COLOR}`,
           padding: "1.5rem",
         }}
         onClick={(e) => e.stopPropagation()}
@@ -82,7 +229,7 @@ export function TicketPopup({
         <div className="flex flex-1 flex-col">
           <header className="shrink-0">
             <h2
-              className="text-5xl font-extralight tracking-tight"
+              className="text-6xl font-extralight tracking-tight"
               style={{ color: TICKET_COLOR }}
             >
               Artrium Admission
@@ -93,27 +240,29 @@ export function TicketPopup({
             >
               {todayLong || "\u00A0"}
             </p>
-            <div className="mt-4 flex items-end gap-4">
-              <input
-                ref={nameInputRef}
-                type="text"
-                placeholder="Type your name"
-                className="w-36 shrink-0 bg-transparent text-base outline-none placeholder:opacity-70"
-                style={{
-                  color: TICKET_COLOR,
-                  borderBottom: `1px solid ${TICKET_COLOR}`,
-                }}
-              />
-              <input
-                ref={emailInputRef}
-                type="email"
-                placeholder="Type your email"
-                className="w-36 shrink-0 bg-transparent text-base outline-none placeholder:opacity-70"
-                style={{
-                  color: TICKET_COLOR,
-                  borderBottom: `1px solid ${TICKET_COLOR}`,
-                }}
-              />
+            <div className="mt-4 flex items-end gap-8">
+              <div className="flex min-w-0 flex-1 gap-8">
+                <input
+                  ref={nameInputRef}
+                  type="text"
+                  placeholder="Type your name"
+                  className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
+                  style={{
+                    color: TICKET_COLOR,
+                    borderBottom: `1px solid ${TICKET_COLOR}`,
+                  }}
+                />
+                <input
+                  ref={emailInputRef}
+                  type="email"
+                  placeholder="Type your email"
+                  className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
+                  style={{
+                    color: TICKET_COLOR,
+                    borderBottom: `1px solid ${TICKET_COLOR}`,
+                  }}
+                />
+              </div>
               <button
                 type="button"
                 disabled={submitting}
@@ -139,6 +288,7 @@ export function TicketPopup({
                     });
                     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
                     if (data?.ok === true) {
+                      setSubmittedData({ name, email });
                       setSubmitStatus("success");
                     } else {
                       console.error("waitlist error:", data?.error);
@@ -164,8 +314,7 @@ export function TicketPopup({
                 {submitting ? "…" : "Submit"}
               </button>
             </div>
-            <div className="mt-1.5 flex">
-              <div className="w-[calc(9rem+9rem+2rem)] shrink-0" aria-hidden />
+            <div className="mt-1.5 flex justify-end">
               <p
                 className="text-xs"
                 style={{
@@ -188,24 +337,31 @@ export function TicketPopup({
               </p>
             </div>
           </header>
-          <footer className="mt-auto flex gap-4 pt-5">
-            <Image
-              src="/Ticket_Logo.png"
-              alt="Artrium"
-              width={80}
-              height={56}
-              className="shrink-0 object-contain object-left"
-            />
-            <p
-              className="min-w-0 text-[11px] leading-relaxed"
-              style={{ color: TICKET_COLOR }}
+          <footer className="mt-auto flex items-stretch gap-4 pt-5">
+            <div
+              className="flex w-20 shrink-0 items-end justify-center"
+              style={{ backgroundColor: TICKET_COLOR }}
             >
-              Creativity is undefinable, and never fixed to one medium, style, or
-              identity. It&apos;s a space of becoming, where people speak, shape,
-              share, and connect. But that space is too often closed off. Access is
-              limited, language is coded, and opportunities become privileges instead
-              of shared possibilities.
-            </p>
+              <Image
+                src="/Ticket_Logo.png"
+                alt="Artrium"
+                width={80}
+                height={56}
+                className="object-contain object-left"
+              />
+            </div>
+            <div className="flex min-w-0 flex-1 flex-col justify-end">
+              <p
+                className="min-w-0 text-[11px] leading-snug tracking-tight"
+                style={{ color: TICKET_COLOR }}
+              >
+                Creativity is undefinable, and never fixed to one medium, style, or
+                identity. It&apos;s a space of becoming, where people speak, shape,
+                share, and connect. But that space is too often closed off. Access is
+                limited, language is coded, and opportunities become privileges instead
+                of shared possibilities.
+              </p>
+            </div>
           </footer>
         </div>
 
@@ -234,8 +390,8 @@ export function TicketPopup({
             <img
               src="/Ticket_QR_Code.svg"
               alt="Ticket QR code"
-              width={120}
-              height={120}
+              width={136}
+              height={136}
               className="object-contain"
             />
           </div>

@@ -1,8 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { TraceRect } from "../contexts/TracePositionsContext";
 import { useTracePositions } from "../contexts/TracePositionsContext";
 import { PhotoGridBackground } from "./PhotoGridBackground";
+
+/** Only show logo holes while trace is still at full opacity (before fade). Removes black flash when trace fades. */
+const TRACE_HOLE_MAX_AGE_MS = 380;
+/** Logo opacity where trace images overlap (0 = trace takes over, 1 = logo solid). Keeps text visible as overlay. */
+const LOGO_TRACE_OVERLAY_OPACITY = 0.52;
 
 const VIEWBOX = { width: 924.52, height: 191.14 };
 
@@ -45,16 +51,18 @@ const YELLOW_ARCH_OPACITY_WHILE_MOVED = 0.8;
 
 /** Intersection of trace rect with logo rect, in 0–1 logo-relative coords for mask. */
 function traceHolesInLogo(
-  positions: { left: number; top: number; width: number; height: number }[],
+  positions: TraceRect[],
   logoLeft: number,
   logoTop: number,
   logoWidth: number,
-  logoHeight: number
+  logoHeight: number,
+  now: number
 ) {
   const logoRight = logoLeft + logoWidth;
   const logoBottom = logoTop + logoHeight;
   const holes: { x: number; y: number; w: number; h: number }[] = [];
   for (const t of positions) {
+    if (now - t.createdAt >= TRACE_HOLE_MAX_AGE_MS) continue;
     const tRight = t.left + t.width;
     const tBottom = t.top + t.height;
     const iLeft = Math.max(t.left, logoLeft);
@@ -75,6 +83,7 @@ function traceHolesInLogo(
 
 export function ArtriumLogo() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const logoTraceMaskId = "logo-trace-mask-artrium";
   const { positions: tracePositions } = useTracePositions();
   const [overlay, setOverlay] = useState<{
     x: number;
@@ -105,12 +114,25 @@ export function ArtriumLogo() {
     () => ({ w: 1920, h: 1080 })
   );
   const [fogDrawnOnce, setFogDrawnOnce] = useState(false);
+  const [tick, setTick] = useState(0);
+  const tickRafRef = useRef<number | null>(null);
   useEffect(() => {
     const update = () => setViewportSize({ w: window.innerWidth, h: window.innerHeight });
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+  useEffect(() => {
+    if (tracePositions.length === 0) return;
+    const raf = () => {
+      setTick(Date.now());
+      tickRafRef.current = requestAnimationFrame(raf);
+    };
+    tickRafRef.current = requestAnimationFrame(raf);
+    return () => {
+      if (tickRafRef.current !== null) cancelAnimationFrame(tickRafRef.current);
+    };
+  }, [tracePositions.length]);
 
   const REVEAL_THROTTLE_PX = 8;
   const archPathForCanvas = useRef<Path2D | null>(null);
@@ -301,20 +323,22 @@ export function ArtriumLogo() {
             overlay.x,
             overlay.y,
             overlay.width,
-            overlay.height
+            overlay.height,
+            tick || Date.now()
           )
         : [],
-    [tracePositions, overlay.mounted, overlay.x, overlay.y, overlay.width, overlay.height]
+    [tracePositions, overlay.mounted, overlay.x, overlay.y, overlay.width, overlay.height, tick]
   );
   const logoMaskStyle =
     logoTraceHoles.length > 0
       ? {
-          maskImage: "url(#logo-trace-mask)",
-          WebkitMaskImage: "url(#logo-trace-mask)" as const,
+          maskImage: `url(#${logoTraceMaskId})`,
+          WebkitMaskImage: `url(#${logoTraceMaskId})` as const,
           maskSize: "100% 100%",
           WebkitMaskSize: "100% 100%",
           maskPosition: "0 0",
           WebkitMaskPosition: "0 0",
+          maskRepeat: "no-repeat" as const,
         }
       : undefined;
 
@@ -347,7 +371,7 @@ export function ArtriumLogo() {
       <svg width={0} height={0} aria-hidden>
         <defs>
           <mask
-            id="logo-trace-mask"
+            id={logoTraceMaskId}
             maskUnits="objectBoundingBox"
             maskContentUnits="objectBoundingBox"
             x={0}
@@ -356,8 +380,17 @@ export function ArtriumLogo() {
             height={1}
           >
             <rect x={0} y={0} width={1} height={1} fill="white" />
+            {/* Black at (1 - opacity) so mask value = logo opacity in trace areas (logo stays translucent) */}
             {logoTraceHoles.map((h, i) => (
-              <rect key={i} x={h.x} y={h.y} width={h.w} height={h.h} fill="black" />
+              <rect
+                key={i}
+                x={h.x}
+                y={h.y}
+                width={h.w}
+                height={h.h}
+                fill="black"
+                fillOpacity={1 - LOGO_TRACE_OVERLAY_OPACITY}
+              />
             ))}
           </mask>
         </defs>

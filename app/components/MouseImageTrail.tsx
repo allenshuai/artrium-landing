@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTracePositions } from "../contexts/TracePositionsContext";
+import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { ARCH_IMAGE_SOURCES } from "../lib/arch-images";
 
 /** Min distance (px) cursor must move before spawning a new trace. Slow movement = no spawn. */
@@ -11,7 +12,7 @@ const MIN_DISTANCE_TO_SPAWN_PX = 48;
 const TRACE_SIZE_MIN = 128;
 const TRACE_SIZE_MAX = 220;
 /** How long (ms) until a trace is fully faded and removed. */
-const FADE_DURATION_MS = 950;
+const FADE_DURATION_MS = 1250;
 /** Max number of traces on screen (drop oldest if over). */
 const MAX_TRACES = 28;
 
@@ -23,6 +24,9 @@ type Trace = {
   size: number;
   rotation: number;
   createdAt: number;
+  spawnDistance: number;
+  timeSinceLastMs: number;
+  spawnVelocity: number;
 };
 
 let nextId = 0;
@@ -31,9 +35,10 @@ function pickRandom<T>(arr: T[]): T {
 }
 
 export function MouseImageTrail() {
+  const { isOpen: ticketPopupOpen } = useTicketPopup();
   const [traces, setTraces] = useState<Trace[]>([]);
   const { setPositions } = useTracePositions();
-  const lastSpawnRef = useRef<{ x: number; y: number } | null>(null);
+  const lastSpawnRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -43,6 +48,10 @@ export function MouseImageTrail() {
         top: t.y - t.size / 2,
         width: t.size,
         height: t.size,
+        createdAt: t.createdAt,
+        spawnDistance: t.spawnDistance,
+        timeSinceLastMs: t.timeSinceLastMs,
+        spawnVelocity: t.spawnVelocity,
       }))
     );
   }, [traces, setPositions]);
@@ -65,6 +74,8 @@ export function MouseImageTrail() {
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
+      if (ticketPopupOpen) return;
+      const now = Date.now();
       const { clientX, clientY } = e;
       const last = lastSpawnRef.current;
       const distance = last
@@ -73,7 +84,10 @@ export function MouseImageTrail() {
 
       if (distance < MIN_DISTANCE_TO_SPAWN_PX) return;
 
-      lastSpawnRef.current = { x: clientX, y: clientY };
+      const timeSinceLastMs = last ? now - last.time : 0;
+      const velocity = timeSinceLastMs > 0 ? distance / timeSinceLastMs : 0;
+
+      lastSpawnRef.current = { x: clientX, y: clientY, time: now };
 
       const size =
         TRACE_SIZE_MIN +
@@ -90,7 +104,10 @@ export function MouseImageTrail() {
             src: pickRandom(ARCH_IMAGE_SOURCES),
             size,
             rotation,
-            createdAt: Date.now(),
+            createdAt: now,
+            spawnDistance: distance,
+            timeSinceLastMs: timeSinceLastMs,
+            spawnVelocity: velocity,
           },
         ];
         if (next.length > MAX_TRACES) return next.slice(-MAX_TRACES);
@@ -100,7 +117,7 @@ export function MouseImageTrail() {
 
     window.addEventListener("mousemove", handleMove, { passive: true });
     return () => window.removeEventListener("mousemove", handleMove);
-  }, []);
+  }, [ticketPopupOpen]);
 
   return (
     <div
@@ -110,7 +127,7 @@ export function MouseImageTrail() {
       {traces.map((t) => (
           <div
             key={t.id}
-            className="absolute overflow-hidden rounded-md shadow-lg will-change-transform"
+            className="absolute overflow-hidden shadow-lg will-change-transform"
             style={{
               left: t.x - t.size / 2,
               top: t.y - t.size / 2,

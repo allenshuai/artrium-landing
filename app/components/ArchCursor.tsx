@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTicketPopup } from "../contexts/TicketPopupContext";
 
 // Full arch shape from Vector.svg (dome/arch), viewBox 0 0 192 192
 const ARCH_PATH =
@@ -9,20 +10,25 @@ const ARCH_PATH =
 const CURSOR_COLORS = ["#A2DEF8", "#F69C9F", "#FBF5AF"] as const;
 const COLOR_CYCLE_MS = 2200;
 
-const CURSOR_SIZE = 24;
+const CURSOR_SIZE = 34;
 // Hotspot: bottom center of arch (tip of the dome at cursor)
 const HOTSPOT_X = CURSOR_SIZE / 2;
 const HOTSPOT_Y = CURSOR_SIZE;
 
 export function ArchCursor() {
+  const { isOpen: ticketPopupOpen } = useTicketPopup();
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [visible, setVisible] = useState(false);
   const [colorIndex, setColorIndex] = useState(0);
 
   useEffect(() => {
+    if (ticketPopupOpen) {
+      document.body.classList.remove("arch-cursor-active");
+      return;
+    }
     document.body.classList.add("arch-cursor-active");
     return () => document.body.classList.remove("arch-cursor-active");
-  }, []);
+  }, [ticketPopupOpen]);
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
@@ -49,7 +55,7 @@ export function ArchCursor() {
     return () => clearInterval(id);
   }, []);
 
-  if (!visible) return null;
+  if (ticketPopupOpen || !visible) return null;
 
   return (
     <div

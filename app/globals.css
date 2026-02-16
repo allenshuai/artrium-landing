@@ -40,3 +40,15 @@ body.arch-cursor-active {
     opacity: 0;
   }
 }
+
+@keyframes arch-trail-fade {
+  0% {
+    opacity: 0.95;
+  }
+  30% {
+    opacity: 0.95;
+  }
+  100% {
+    opacity: 0;
+  }
+}
