@@ -38,6 +38,7 @@ export function TicketPopup({
   onClose: () => void;
 }) {
   const [submitActive, setSubmitActive] = useState(false);
+  const [submitHovered, setSubmitHovered] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<null | "success" | "invalid" | "error">(null);
   const [submitting, setSubmitting] = useState(false);
   const [todayLong, setTodayLong] = useState("");
@@ -303,11 +304,22 @@ export function TicketPopup({
                 }}
                 onMouseDown={() => setSubmitActive(true)}
                 onMouseUp={() => setSubmitActive(false)}
-                onMouseLeave={() => setSubmitActive(false)}
+                onMouseEnter={() => setSubmitHovered(true)}
+                onMouseLeave={() => {
+                  setSubmitActive(false);
+                  setSubmitHovered(false);
+                }}
                 className="shrink-0 px-3 py-1 text-base leading-normal transition-colors disabled:opacity-60"
                 style={{
+                  cursor: submitting
+                    ? "default"
+                    : 'url("/Vector.svg") 12 20, pointer',
                   color: submitActive ? CREAM : TICKET_COLOR,
-                  backgroundColor: submitActive ? TICKET_COLOR : "transparent",
+                  backgroundColor: submitActive
+                    ? TICKET_COLOR
+                    : submitHovered
+                      ? "rgba(63, 58, 54, 0.06)"
+                      : "transparent",
                   border: `1px solid ${TICKET_COLOR}`,
                 }}
               >

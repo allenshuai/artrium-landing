@@ -1,0 +1,17 @@
+<svg width="34" height="24" viewBox="0 0 34 24" xmlns="http://www.w3.org/2000/svg">
+  <!-- Highlight box: width 34, no rounded corners, cream fill -->
+  <rect x="0" y="0" width="34" height="18" fill="#FFF8F2" />
+  <!-- Text: 'NOW' in dark, font-light style, centered horizontally -->
+  <text
+    x="17"
+    y="13"
+    text-anchor="middle"
+    fill="#3F3A36"
+    font-family="system-ui, -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif"
+    font-size="11"
+    font-weight="300"
+  >
+    NOW
+  </text>
+</svg>
+
