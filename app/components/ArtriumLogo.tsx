@@ -5,6 +5,7 @@ import type { TraceRect } from "../contexts/TracePositionsContext";
 import { useTracePositions } from "../contexts/TracePositionsContext";
 import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { useColorScheme } from "../contexts/ColorSchemeContext";
+import { dmSans } from "../fonts";
 import { PhotoGridBackground } from "./PhotoGridBackground";
 
 /** Only show logo holes while trace is still at full opacity (before fade). Removes black flash when trace fades. */
@@ -64,6 +65,27 @@ const CREAM = "#FFF8F2";
 /** When false, no collage or brush-reveal (solid logo only). */
 const BRUSHING_ENABLED = false;
 
+const ALT_WORDMARKS = [
+  "jobs",
+  "residencies",
+  "open calls",
+  "grants",
+  "exhibitions",
+  "workshops",
+  "studio spaces",
+  "collaboration",
+  "artist talks",
+  "networks",
+  "teaching gigs",
+  "resources",
+  "communities",
+  "curators",
+  "students",
+  "artists",
+  "creatives",
+
+] as const;
+
 /** 3D tilt: max rotation (deg) and sensitivity (px from center per degree). Logo "leans" toward cursor. */
 const TILT_MAX_DEG = 2;
 const TILT_SENSITIVITY_PX = 280;
@@ -110,6 +132,12 @@ export function ArtriumLogo() {
   const logoTraceMaskId = "logo-trace-mask-artrium";
   const { positions: tracePositions } = useTracePositions();
   const { isOpen: ticketPopupOpen } = useTicketPopup();
+  const [wordmarkOverride, setWordmarkOverride] = useState<string | null>(null);
+  const lastMoveRef = useRef<{ x: number; y: number; t: number } | null>(null);
+  const lastChangeRef = useRef<number>(0);
+  const lastMoveAtRef = useRef<number>(0);
+  const wordmarkRef = useRef<string | null>(null);
+  wordmarkRef.current = wordmarkOverride;
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const tiltRafRef = useRef<number | null>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
@@ -263,6 +291,70 @@ export function ArtriumLogo() {
       window.removeEventListener("mousemove", onMove);
       document.body.removeEventListener("mouseleave", onLeave);
       if (tiltRafRef.current !== null) cancelAnimationFrame(tiltRafRef.current);
+    };
+  }, [ticketPopupOpen]);
+
+  // Swap the wordmark while cursor is moving; speed controls frequency. Stop => revert to original logo wordmark.
+  useEffect(() => {
+    if (ticketPopupOpen) {
+      setWordmarkOverride(null);
+      lastMoveRef.current = null;
+      return;
+    }
+
+    const STOP_REVERT_MS = 420;
+    const MIN_SPEED_PX_S = 200; // ignore tiny jitter
+
+    const pickNextLabel = () => {
+      const current = wordmarkRef.current;
+      const options = ALT_WORDMARKS.filter((w) => w !== current);
+      const pool = options.length > 0 ? options : ALT_WORDMARKS;
+      return pool[Math.floor(Math.random() * pool.length)] ?? ALT_WORDMARKS[0];
+    };
+
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
+    const onMove = (e: MouseEvent) => {
+      const now = performance.now();
+      const x = e.clientX;
+      const y = e.clientY;
+      const last = lastMoveRef.current;
+
+      lastMoveAtRef.current = now;
+
+      let speedPxS = 0;
+      if (last) {
+        const dist = Math.hypot(x - last.x, y - last.y);
+        const dt = now - last.t;
+        if (dt > 0) speedPxS = (dist / dt) * 1000;
+      }
+      lastMoveRef.current = { x, y, t: now };
+
+      if (speedPxS < MIN_SPEED_PX_S) return;
+
+      // Faster movement => smaller period (more frequent swaps)
+      const periodMs = clamp(1100 - speedPxS * 0.09, 80, 1100);
+      if (now - lastChangeRef.current >= periodMs) {
+        lastChangeRef.current = now;
+        setWordmarkOverride(pickNextLabel());
+      }
+    };
+
+    window.addEventListener("mousemove", onMove, { passive: true });
+
+    let rafId: number | null = null;
+    const tick = () => {
+      const now = performance.now();
+      if (wordmarkRef.current !== null && now - lastMoveAtRef.current > STOP_REVERT_MS) {
+        setWordmarkOverride(null);
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      if (rafId !== null) cancelAnimationFrame(rafId);
     };
   }, [ticketPopupOpen]);
 
@@ -469,7 +561,7 @@ export function ArtriumLogo() {
       >
         <div
           ref={containerRef}
-          className="w-[924.52px] max-w-[90vw] drop-shadow-sm"
+          className="relative w-[924.52px] max-w-[90vw] drop-shadow-sm"
           style={{
             ...logoMaskStyle,
             transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
@@ -481,6 +573,10 @@ export function ArtriumLogo() {
             className="h-auto w-full min-w-0"
             fill="none"
             xmlns="http://www.w3.org/2000/svg"
+            style={{
+              opacity: wordmarkOverride === null ? 1 : 0,
+              transition: "opacity 0.3s ease",
+            }}
           >
             {NEW_LOGO_ARCH_PATHS.map((p, i) => (
               <path key={`arch-${i}`} d={p.d} fill={p.fill} />
@@ -494,6 +590,25 @@ export function ArtriumLogo() {
               />
             ))}
           </svg>
+
+          {wordmarkOverride !== null && (
+            <div
+              className="pointer-events-none absolute inset-0 flex items-center justify-center"
+              aria-hidden
+            >
+              <div
+                className={`${dmSans.className} whitespace-nowrap text-center font-light leading-none tracking-tight uppercase`}
+                style={{
+                  color: scheme.logoText,
+                  transition: "color 0.4s ease",
+                  fontSize: "clamp(80px, 10vw, 200px)",
+                  opacity: 0.98,
+                }}
+              >
+                {wordmarkOverride}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
