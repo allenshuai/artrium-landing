@@ -195,7 +195,7 @@ export function HighlightParagraph({
     <div
       ref={containerRef}
       role="paragraph"
-      className={`relative max-w-md pb-6 text-center text-sm leading-relaxed ${className}`}
+      className={`relative max-w-xl pb-6 text-center text-base leading-relaxed ${className}`}
       style={style}
     >
       <div
