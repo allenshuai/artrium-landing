@@ -18,17 +18,17 @@ export default function Home() {
         <ArchCursor />
         <MouseImageTrail />
         <MouseArchTrail />
+        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+          <div className="pointer-events-auto flex flex-col items-center gap-12">
+            <ArtriumLogo />
+            <BecomeTestingUserButton />
+          </div>
+        </div>
         <HighlightParagraph
-          className="relative z-10 shrink-0 font-light pt-6"
+          className="relative z-20 shrink-0 font-light pt-6"
           style={{ color: "#FFF8F2" }}
           text="We bring together a shared space where students, artists, curators, creative professionals, and art lovers connect, discover, and grow, making the art world more accessible and visible."
         />
-        <div className="relative z-10 flex flex-1 flex-col items-center justify-center">
-          <ArtriumLogo />
-        </div>
-        <div className="relative z-10 shrink-0 pb-6">
-          <BecomeTestingUserButton />
-        </div>
       </div>
       </TicketPopupProvider>
     </TracePositionsProvider>
