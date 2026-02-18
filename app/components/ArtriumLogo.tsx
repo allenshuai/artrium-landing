@@ -66,25 +66,26 @@ const CREAM = "#FFF8F2";
 const BRUSHING_ENABLED = false;
 
 const ALT_WORDMARKS = [
-  "jobs",
-  "residencies",
-  "open calls",
-  "grants",
-  "exhibitions",
-  "workshops",
-  "studio spaces",
-  "collaboration",
-  "artist talks",
-  "networks",
-  "teaching gigs",
-  "resources",
-  "communities",
-  "curators",
-  "students",
-  "artists",
-  "creatives",
-
+  "JOBS",
+  "RESIDENCIES",
+  "OPEN CALLS",
+  "GRANTS",
+  "EXHIBITIONS",
+  "WORKSHOPS",
+  "STUDIO SPACES",
+  "COLLABORATION",
+  "ARTIST TALKS",
+  "NETWORKS",
+  "TEACHING GIGS",
+  "RESOURCES",
+  "COMMUNITIES",
+  "CURATORS",
+  "STUDENTS",
+  "ARTISTS",
+  "CREATIVES",
 ] as const;
+
+const ALL_AT_LABEL = "naow at";
 
 /** 3D tilt: max rotation (deg) and sensitivity (px from center per degree). Logo "leans" toward cursor. */
 const TILT_MAX_DEG = 2;
@@ -137,6 +138,7 @@ export function ArtriumLogo() {
   const lastChangeRef = useRef<number>(0);
   const lastMoveAtRef = useRef<number>(0);
   const wordmarkRef = useRef<string | null>(null);
+  const allAtStartRef = useRef<number | null>(null);
   wordmarkRef.current = wordmarkOverride;
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const tiltRafRef = useRef<number | null>(null);
@@ -303,6 +305,7 @@ export function ArtriumLogo() {
     }
 
     const STOP_REVERT_MS = 420;
+    const ALL_AT_DURATION_MS = 420;
     const MIN_SPEED_PX_S = 200; // ignore tiny jitter
 
     const pickNextLabel = () => {
@@ -345,8 +348,20 @@ export function ArtriumLogo() {
     let rafId: number | null = null;
     const tick = () => {
       const now = performance.now();
-      if (wordmarkRef.current !== null && now - lastMoveAtRef.current > STOP_REVERT_MS) {
-        setWordmarkOverride(null);
+      const override = wordmarkRef.current;
+      if (override !== null && now - lastMoveAtRef.current > STOP_REVERT_MS) {
+        // First step: swap any keyword to ALL AT
+        if (override !== ALL_AT_LABEL) {
+          setWordmarkOverride(ALL_AT_LABEL);
+          allAtStartRef.current = now;
+        } else if (
+          allAtStartRef.current !== null &&
+          now - allAtStartRef.current > ALL_AT_DURATION_MS
+        ) {
+          // Second step: after ALL AT has been shown, revert to original logo
+          setWordmarkOverride(null);
+          allAtStartRef.current = null;
+        }
       }
       rafId = requestAnimationFrame(tick);
     };
@@ -597,7 +612,7 @@ export function ArtriumLogo() {
               aria-hidden
             >
               <div
-                className={`${dmSans.className} whitespace-nowrap text-center font-light leading-none tracking-tight uppercase`}
+                className={`${dmSans.className} whitespace-nowrap text-center font-light leading-none tracking-tight`}
                 style={{
                   color: scheme.logoText,
                   transition: "color 0.4s ease",
