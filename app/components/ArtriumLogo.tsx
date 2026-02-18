@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { TraceRect } from "../contexts/TracePositionsContext";
 import { useTracePositions } from "../contexts/TracePositionsContext";
+import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { PhotoGridBackground } from "./PhotoGridBackground";
 
 /** Only show logo holes while trace is still at full opacity (before fade). Removes black flash when trace fades. */
@@ -44,6 +45,10 @@ const DARK_FILL = "#FFF8F2";
 const CREAM = "#FFF8F2";
 /** When false, no collage or brush-reveal (solid logo only). */
 const BRUSHING_ENABLED = false;
+
+/** 3D tilt: max rotation (deg) and sensitivity (px from center per degree). Logo "leans" toward cursor. */
+const TILT_MAX_DEG = 2;
+const TILT_SENSITIVITY_PX = 280;
 /** Yellow arch opacity when at rest (on the logo). */
 const YELLOW_ARCH_OPACITY_AT_REST = 0.8;
 /** Yellow arch opacity when user is dragging or has dragged it (more transparent so grid shows through). */
@@ -85,6 +90,10 @@ export function ArtriumLogo() {
   const containerRef = useRef<HTMLDivElement>(null);
   const logoTraceMaskId = "logo-trace-mask-artrium";
   const { positions: tracePositions } = useTracePositions();
+  const { isOpen: ticketPopupOpen } = useTicketPopup();
+  const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const tiltRafRef = useRef<number | null>(null);
+  const mouseRef = useRef({ x: 0, y: 0 });
   const [overlay, setOverlay] = useState<{
     x: number;
     y: number;
@@ -198,6 +207,45 @@ export function ArtriumLogo() {
       window.removeEventListener("resize", updateOverlayRect);
     };
   }, [updateOverlayRect]);
+
+  // 3D tilt: logo leans toward cursor (gravitational feel). Disabled when ticket popup is open.
+  useEffect(() => {
+    if (ticketPopupOpen) {
+      setTilt({ x: 0, y: 0 });
+      return;
+    }
+    const updateTilt = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const centerX = rect.left + rect.width / 2;
+      const centerY = rect.top + rect.height / 2;
+      const { x: mx, y: my } = mouseRef.current;
+      const deltaX = mx - centerX;
+      const deltaY = my - centerY;
+      const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+      const tiltY = clamp((deltaX / TILT_SENSITIVITY_PX) * TILT_MAX_DEG, -TILT_MAX_DEG, TILT_MAX_DEG);
+      const tiltX = clamp((-deltaY / TILT_SENSITIVITY_PX) * TILT_MAX_DEG, -TILT_MAX_DEG, TILT_MAX_DEG);
+      setTilt({ x: tiltX, y: tiltY });
+    };
+    const onMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY };
+      if (tiltRafRef.current === null) {
+        tiltRafRef.current = requestAnimationFrame(() => {
+          tiltRafRef.current = null;
+          updateTilt();
+        });
+      }
+    };
+    const onLeave = () => setTilt({ x: 0, y: 0 });
+    window.addEventListener("mousemove", onMove, { passive: true });
+    document.body.addEventListener("mouseleave", onLeave);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      document.body.removeEventListener("mouseleave", onLeave);
+      if (tiltRafRef.current !== null) cancelAnimationFrame(tiltRafRef.current);
+    };
+  }, [ticketPopupOpen]);
 
   // Add current overlay position to "revealed" only while user is dragging (not on resize/sync)
   useEffect(() => {
@@ -395,12 +443,20 @@ export function ArtriumLogo() {
           </mask>
         </defs>
       </svg>
-      {/* Text logo: transparent where trace images overlap (mask with holes) */}
+      {/* Text logo: transparent where trace images overlap (mask with holes); 3D tilt toward cursor */}
       <div
-        ref={containerRef}
-        className="relative z-30 w-[924.52px] max-w-[90vw] drop-shadow-sm shrink-0"
-        style={logoMaskStyle}
+        className="relative z-30 shrink-0"
+        style={{ perspective: "1200px", perspectiveOrigin: "50% 50%" }}
       >
+        <div
+          ref={containerRef}
+          className="w-[924.52px] max-w-[90vw] drop-shadow-sm"
+          style={{
+            ...logoMaskStyle,
+            transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg)`,
+            transformStyle: "preserve-3d",
+          }}
+        >
         <svg
           viewBox={`0 0 ${VIEWBOX.width} ${VIEWBOX.height}`}
           className="h-auto w-full min-w-0"
@@ -418,6 +474,7 @@ export function ArtriumLogo() {
           ))}
           <path d={M_PATH} fill={DARK_FILL} />
         </svg>
+        </div>
       </div>
 
       {/* Collage overlay: only when brushing enabled; visible in brush holes above logo */}
