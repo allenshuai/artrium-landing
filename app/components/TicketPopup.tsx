@@ -4,6 +4,20 @@ import html2canvas from "html2canvas";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+const MOBILE_BREAKPOINT_PX = 768;
+
+function useIsSmallScreen() {
+  const [isSmall, setIsSmall] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
+    setIsSmall(mq.matches);
+    const listener = () => setIsSmall(mq.matches);
+    mq.addEventListener("change", listener);
+    return () => mq.removeEventListener("change", listener);
+  }, []);
+  return isSmall;
+}
+
 function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 }
@@ -95,7 +109,47 @@ export function TicketPopup({
     return () => clearTimeout(t);
   }, [submittedData, captureAndDownloadTicket]);
 
+  const isSmallScreen = useIsSmallScreen();
+
   if (!open) return null;
+
+  const submitHandler = async () => {
+    const name = nameInputRef.current?.value?.trim() ?? "";
+    const email = emailInputRef.current?.value?.trim() ?? "";
+    if (!name) {
+      setSubmitStatus("invalid");
+      return;
+    }
+    if (!isValidEmail(email)) {
+      setSubmitStatus("invalid");
+      return;
+    }
+    setSubmitting(true);
+    setSubmitStatus(null);
+    try {
+      const res = await fetch("/api/waitlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (data?.ok === true) {
+        setSubmittedData({ name, email });
+        setSubmitStatus("success");
+      } else {
+        setSubmitStatus("error");
+      }
+    } catch {
+      setSubmitStatus("error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const inputStyle = {
+    color: TICKET_COLOR,
+    borderBottom: `1px solid ${TICKET_COLOR}`,
+  };
 
   return (
     <div
@@ -219,195 +273,221 @@ export function TicketPopup({
         aria-hidden
       />
       <div
-        className="relative flex w-full max-w-3xl overflow-hidden bg-[#F8F5EE] shadow-xl"
+        className={`relative flex overflow-hidden bg-[#F8F5EE] shadow-xl ${isSmallScreen ? "w-full max-w-[340px]" : "w-full max-w-3xl"}`}
         style={{
           border: `4px solid ${TICKET_COLOR}`,
-          padding: "1.5rem",
+          padding: isSmallScreen ? "1rem 1rem 0 1rem" : "1.5rem",
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Left column: top = title/date/inputs, bottom = logo + paragraph */}
-        <div className="flex flex-1 flex-col">
-          <header className="shrink-0">
-            <h2
-              className="text-6xl font-extralight tracking-tight"
-              style={{ color: TICKET_COLOR }}
-            >
-              Artrium Admission
-            </h2>
-            <p
-              className="mt-1 text-lg"
-              style={{ color: TICKET_COLOR }}
-            >
-              {todayLong || "\u00A0"}
-            </p>
-            <div className="mt-4 flex items-end gap-8">
-              <div className="flex min-w-0 flex-1 gap-8">
-                <input
-                  ref={nameInputRef}
-                  type="text"
-                  placeholder="Type your name"
-                  className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
-                  style={{
-                    color: TICKET_COLOR,
-                    borderBottom: `1px solid ${TICKET_COLOR}`,
-                  }}
-                />
-                <input
-                  ref={emailInputRef}
-                  type="email"
-                  placeholder="Type your email"
-                  className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
-                  style={{
-                    color: TICKET_COLOR,
-                    borderBottom: `1px solid ${TICKET_COLOR}`,
-                  }}
-                />
+        {isSmallScreen ? (
+          /* Mobile / small screen: vertical ticket layout */
+          <div className="flex w-full flex-col">
+            {/* Top: logo, ARTRIUM ADMISSION, QR - same height for all three, larger */}
+            <header className="flex items-stretch justify-between gap-2" style={{ height: 84 }}>
+              <div
+                className="flex shrink-0 items-center justify-center mt-2"
+                style={{ width: 64, height: 64, backgroundColor: TICKET_COLOR }}
+              >
+                <Image src="/Ticket_Logo.png" alt="" width={54} height={54} className="object-contain" />
               </div>
-              <button
-                type="button"
-                disabled={submitting}
-                onClick={async () => {
-                  const name = nameInputRef.current?.value?.trim() ?? "";
-                  const email = emailInputRef.current?.value?.trim() ?? "";
-                  
-                  if (!name) {
-                    setSubmitStatus("invalid");
-                    return;
-                  }
-                  if (!isValidEmail(email)) {
-                    setSubmitStatus("invalid");
-                    return;
-                  }
-                  setSubmitting(true);
-                  setSubmitStatus(null);
-                  try {
-                    const res = await fetch("/api/waitlist", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ name, email }),
-                    });
-                    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-                    if (data?.ok === true) {
-                      setSubmittedData({ name, email });
-                      setSubmitStatus("success");
-                    } else {
-                      console.error("waitlist error:", data?.error);
-                      setSubmitStatus("error");
-                    }
-
-                  } catch {
-                    setSubmitStatus("error");
-                  } finally {
-                    setSubmitting(false);
-                  }
-                }}
-                onMouseDown={() => setSubmitActive(true)}
-                onMouseUp={() => setSubmitActive(false)}
-                onMouseEnter={() => setSubmitHovered(true)}
-                onMouseLeave={() => {
-                  setSubmitActive(false);
-                  setSubmitHovered(false);
-                }}
-                className="shrink-0 px-3 py-1 text-base leading-normal transition-colors disabled:opacity-60"
-                style={{
-                  cursor: submitting
-                    ? "default"
-                    : 'url("/Vector.svg") 12 20, pointer',
-                  color: submitActive ? CREAM : TICKET_COLOR,
-                  backgroundColor: submitActive
-                    ? TICKET_COLOR
-                    : submitHovered
-                      ? "rgba(63, 58, 54, 0.06)"
-                      : "transparent",
-                  border: `1px solid ${TICKET_COLOR}`,
-                }}
-              >
-                {submitting ? "…" : "Submit"}
-              </button>
-            </div>
-            <div className="mt-1.5 flex justify-end">
-              <p
-                className="text-xs"
-                style={{
-                  color:
-                    submitStatus === "success"
-                      ? "#16a34a"
-                      : submitStatus === "invalid" || submitStatus === "error"
-                        ? "#dc2626"
-                        : TICKET_COLOR,
-                  opacity: submitStatus ? 1 : 0.8,
-                }}
-              >
-                {submitStatus === "success"
-                  ? "success!!!"
-                  : submitStatus === "invalid"
-                    ? "invalid email"
-                    : submitStatus === "error"
-                      ? "submission failed, try again"
-                      : "(to become testing user)"}
-              </p>
-            </div>
-          </header>
-          <footer className="mt-auto flex items-stretch gap-4 pt-5">
-            <div
-              className="flex w-20 shrink-0 items-end justify-center"
-              style={{ backgroundColor: TICKET_COLOR }}
-            >
-              <Image
-                src="/Ticket_Logo.png"
-                alt="Artrium"
-                width={80}
-                height={56}
-                className="object-contain object-left"
-              />
-            </div>
-            <div className="flex min-w-0 flex-1 flex-col justify-end">
-              <p
-                className="min-w-0 text-[11px] leading-snug tracking-tight"
+              <h2
+                className="flex min-w-0 flex-1 items-center justify-center text-left text-3xl font-extralight uppercase tracking-tight leading-tight"
                 style={{ color: TICKET_COLOR }}
               >
-                Creativity is undefinable, and never fixed to one medium, style, or
-                identity. It&apos;s a space of becoming, where people speak, shape,
-                share, and connect. But that space is too often closed off. Access is
-                limited, language is coded, and opportunities become privileges instead
-                of shared possibilities.
-              </p>
+                Artrium
+                <br />
+                Admission
+              </h2>
+              <div className="flex shrink-0 items-center justify-center mt-2" style={{ width: 64, height: 64 }}>
+                <Image src="/Ticket_QR_Code.svg" alt="" width={64} height={64} className="object-contain" />
+              </div>
+            </header>
+            {/* Order date + Artrium Admission $0.00 */}
+            <div className="mt-3 flex justify-between">
+              <div>
+                <p className="text-xs" style={{ color: TICKET_COLOR }}>Order Date</p>
+                <p className="text-sm font-medium" style={{ color: TICKET_COLOR }}>{todayShort || "–"}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs" style={{ color: TICKET_COLOR }}>Artrium Admission</p>
+                <p className="text-sm font-medium" style={{ color: TICKET_COLOR }}>$0.00</p>
+              </div>
             </div>
-          </footer>
-        </div>
-
-        <div
-          className="mx-4 w-px shrink-0 border-l border-dashed"
-          style={{ borderColor: TICKET_COLOR }}
-        />
-
-        {/* Right column: width so left/right gap around QR = bottom gap (ticket padding 1.5rem = 24px) */}
-        <aside className="flex w-[140px] shrink-0 flex-col justify-between">
-          <div>
-            <p className="text-base" style={{ color: TICKET_COLOR }}>
-              Order Date
-            </p>
-            <p className="text-base font-medium" style={{ color: TICKET_COLOR }}>
-              {todayShort || "–"}
-            </p>
-            <p className="mt-2 text-base" style={{ color: TICKET_COLOR }}>
-              Artrium Admission
-            </p>
-            <p className="text-base font-medium" style={{ color: TICKET_COLOR }}>
-              $0.00
-            </p>
-          </div>
-          <div className="mt-4 flex justify-center">
-            <img
-              src="/Ticket_QR_Code.svg"
-              alt="Ticket QR code"
-              width={136}
-              height={136}
-              className="object-contain"
+            {/* Name + Email: underline shorter, only as long as text */}
+            <div className="mt-4 flex flex-col gap-3">
+              <input
+                ref={nameInputRef}
+                type="text"
+                placeholder="Type your name"
+                className="bg-transparent text-base outline-none placeholder:opacity-70"
+                style={{ ...inputStyle, width: "14ch", minWidth: "14ch" }}
+              />
+              <input
+                ref={emailInputRef}
+                type="email"
+                placeholder="Type your email"
+                className="bg-transparent text-base outline-none placeholder:opacity-70"
+                style={{ ...inputStyle, width: "20ch", minWidth: "20ch" }}
+              />
+            </div>
+            {/* Dashed line full width */}
+            <div
+              className="mt-4 border-b border-dashed"
+              style={{ borderColor: TICKET_COLOR, marginLeft: "-1rem", marginRight: "-1rem", width: "calc(100% + 2rem)" }}
             />
+            {/* Paragraph: equal spacing top and bottom */}
+            <p className="my-3 min-w-0 text-[11px] leading-snug tracking-tight" style={{ color: TICKET_COLOR }}>
+              Creativity is undefinable, and never fixed to one medium, style, or identity. It&apos;s a space of
+              becoming, where people speak, shape, share, and connect. But that space is too often closed off. Access
+              is limited, language is coded, and opportunities become privileges instead of shared possibilities.
+            </p>
+            {/* Solid line full width; bottom box with equal spacing, shorter */}
+            <div
+              className="border-t py-0"
+              style={{
+                borderColor: TICKET_COLOR,
+                marginLeft: "-1rem",
+                marginRight: "-1rem",
+                width: "calc(100% + 2rem)",
+                paddingLeft: "1rem",
+                paddingRight: "0rem",
+              }}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <p
+                  className="min-w-0 text-xs"
+                  style={{
+                    color:
+                      submitStatus === "success" ? "#16a34a" : submitStatus === "invalid" || submitStatus === "error" ? "#dc2626" : TICKET_COLOR,
+                    opacity: submitStatus ? 1 : 0.8,
+                  }}
+                >
+                  {submitStatus === "success"
+                    ? "success!!!"
+                    : submitStatus === "invalid"
+                      ? "invalid email"
+                      : submitStatus === "error"
+                        ? "submission failed, try again"
+                        : "(to become testing user)"}
+                </p>
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={submitHandler}
+                  className="shrink-0 px-4 py-2 text-base font-medium text-[#3F3A36] disabled:opacity-60"
+                  style={{ backgroundColor: "#A2DEF8", borderLeft: `1px solid ${TICKET_COLOR}` }}
+                >
+                  {submitting ? "…" : "Submit"}
+                </button>
+              </div>
+            </div>
           </div>
-        </aside>
+        ) : (
+          <>
+            {/* Desktop: two-column layout */}
+            <div className="flex flex-1 flex-col">
+              <header className="shrink-0">
+                <h2 className="text-6xl font-extralight tracking-tight" style={{ color: TICKET_COLOR }}>
+                  Artrium Admission
+                </h2>
+                <p className="mt-1 text-lg" style={{ color: TICKET_COLOR }}>
+                  {todayLong || "\u00A0"}
+                </p>
+                <div className="mt-4 flex items-end gap-8">
+                  <div className="flex min-w-0 flex-1 gap-8">
+                    <input
+                      ref={nameInputRef}
+                      type="text"
+                      placeholder="Type your name"
+                      className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
+                      style={inputStyle}
+                    />
+                    <input
+                      ref={emailInputRef}
+                      type="email"
+                      placeholder="Type your email"
+                      className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
+                      style={inputStyle}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    disabled={submitting}
+                    onClick={submitHandler}
+                    onMouseDown={() => setSubmitActive(true)}
+                    onMouseUp={() => setSubmitActive(false)}
+                    onMouseEnter={() => setSubmitHovered(true)}
+                    onMouseLeave={() => {
+                      setSubmitActive(false);
+                      setSubmitHovered(false);
+                    }}
+                    className="shrink-0 px-3 py-1 text-base leading-normal transition-colors disabled:opacity-60"
+                    style={{
+                      cursor: submitting ? "default" : 'url("/Vector.svg") 12 20, pointer',
+                      color: submitActive ? CREAM : TICKET_COLOR,
+                      backgroundColor:
+                        submitActive ? TICKET_COLOR : submitHovered ? "rgba(63, 58, 54, 0.06)" : "transparent",
+                      border: `1px solid ${TICKET_COLOR}`,
+                    }}
+                  >
+                    {submitting ? "…" : "Submit"}
+                  </button>
+                </div>
+                <div className="mt-1.5 flex justify-end">
+                  <p
+                    className="text-xs"
+                    style={{
+                      color:
+                        submitStatus === "success"
+                          ? "#16a34a"
+                          : submitStatus === "invalid" || submitStatus === "error"
+                            ? "#dc2626"
+                            : TICKET_COLOR,
+                      opacity: submitStatus ? 1 : 0.8,
+                    }}
+                  >
+                    {submitStatus === "success"
+                      ? "success!!!"
+                      : submitStatus === "invalid"
+                        ? "invalid email"
+                        : submitStatus === "error"
+                          ? "submission failed, try again"
+                          : "(to become testing user)"}
+                  </p>
+                </div>
+              </header>
+              <footer className="mt-auto flex items-stretch gap-4 pt-5">
+                <div
+                  className="flex w-20 shrink-0 items-end justify-center"
+                  style={{ backgroundColor: TICKET_COLOR }}
+                >
+                  <Image src="/Ticket_Logo.png" alt="Artrium" width={80} height={56} className="object-contain object-left" />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col justify-end">
+                  <p className="min-w-0 text-[11px] leading-snug tracking-tight" style={{ color: TICKET_COLOR }}>
+                    Creativity is undefinable, and never fixed to one medium, style, or identity. It&apos;s a space of
+                    becoming, where people speak, shape, share, and connect. But that space is too often closed off.
+                    Access is limited, language is coded, and opportunities become privileges instead of shared
+                    possibilities.
+                  </p>
+                </div>
+              </footer>
+            </div>
+            <div className="mx-4 w-px shrink-0 border-l border-dashed" style={{ borderColor: TICKET_COLOR }} />
+            <aside className="flex w-[140px] shrink-0 flex-col justify-between">
+              <div>
+                <p className="text-base" style={{ color: TICKET_COLOR }}>Order Date</p>
+                <p className="text-base font-medium" style={{ color: TICKET_COLOR }}>{todayShort || "–"}</p>
+                <p className="mt-2 text-base" style={{ color: TICKET_COLOR }}>Artrium Admission</p>
+                <p className="text-base font-medium" style={{ color: TICKET_COLOR }}>$0.00</p>
+              </div>
+              <div className="mt-4 flex justify-center">
+                <img src="/Ticket_QR_Code.svg" alt="Ticket QR code" width={136} height={136} className="object-contain" />
+              </div>
+            </aside>
+          </>
+        )}
       </div>
     </div>
   );
