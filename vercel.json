@@ -1,0 +1,5 @@
+{
+    "rewrites": [
+      { "source": "/map", "destination": "https://artrium-app.vercel.app/map" }
+    ]
+  }
