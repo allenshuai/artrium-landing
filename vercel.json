@@ -1,5 +1,5 @@
 {
-    "rewrites": [
-      { "source": "/map", "destination": "https://artrium-vert.vercel.app" }
-    ]
-  }
+  "rewrites": [
+    { "source": "/map", "destination": "https://artrium-vert.vercel.app/map" }
+  ]
+}
