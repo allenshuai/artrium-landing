@@ -24,7 +24,7 @@ export async function POST(request: Request) {
     });
 
     const text = await res.text();
-
+// addddd
     if (!res.ok) {
       return NextResponse.json(
         { ok: false, error: `Script HTTP ${res.status}: ${text.slice(0, 300)}` },
