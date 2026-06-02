@@ -1,5 +1,5 @@
 {
   "rewrites": [
-    { "source": "/map", "destination": "https://artrium-alpha.vercel.app/map" }
+    { "source": "/map", "destination": "https://artrium-git-allen-map-frontend-artriums-projects.vercel.app/map" }
   ]
 }
