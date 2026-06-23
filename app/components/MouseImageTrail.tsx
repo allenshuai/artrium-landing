@@ -34,7 +34,7 @@ function pickRandom<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
 }
 
-export function MouseImageTrail() {
+export function MouseImageTrail({ disabled = false }: { disabled?: boolean }) {
   const { isOpen: ticketPopupOpen } = useTicketPopup();
   const [traces, setTraces] = useState<Trace[]>([]);
   const { setPositions } = useTracePositions();
@@ -74,7 +74,7 @@ export function MouseImageTrail() {
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
-      if (ticketPopupOpen) return;
+      if (ticketPopupOpen || disabled) return;
       const now = Date.now();
       const { clientX, clientY } = e;
       const last = lastSpawnRef.current;
@@ -117,7 +117,7 @@ export function MouseImageTrail() {
 
     window.addEventListener("mousemove", handleMove, { passive: true });
     return () => window.removeEventListener("mousemove", handleMove);
-  }, [ticketPopupOpen]);
+  }, [ticketPopupOpen, disabled]);
 
   return (
     <div

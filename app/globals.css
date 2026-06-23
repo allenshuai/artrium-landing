@@ -52,3 +52,53 @@ body.arch-cursor-active {
     opacity: 0;
   }
 }
+
+/* ── Homepage animations ── */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(32px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes marqueeScroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+@keyframes floatY {
+  0%, 100% { transform: translateY(0);     }
+  50%       { transform: translateY(-10px); }
+}
+@keyframes pulsePin {
+  0%, 100% { box-shadow: 0 0 0 0   rgba(63,58,54,0.45); }
+  50%       { box-shadow: 0 0 0 10px rgba(63,58,54,0);   }
+}
+@keyframes heroGlow {
+  0%, 100% { opacity: 0.55; }
+  50%       { opacity: 0.9;  }
+}
+@keyframes navSlideDown {
+  from { transform: translateY(-100%); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+/* ── Hover transitions ── */
+.door-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.door-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 14px 0 rgba(0,0,0,0.07);
+}
+.ex-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.ex-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px rgba(63,58,54,0.13);
+}
+
+html {
+  scroll-behavior: smooth;
+}
