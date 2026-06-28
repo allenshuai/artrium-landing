@@ -5,8 +5,37 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { useGLTF, PointerLockControls } from '@react-three/drei'
 import * as THREE from 'three'
 
+const ARCH_PATH = "M95.7731 0C42.8754 0 0 42.8827 0 95.7731V191.546H191.546V95.7731C191.546 42.8827 148.671 0 95.7731 0Z"
+const ARCH_COLORS = ["#A2DEF8", "#F69C9F", "#FBF5AF"] as const
+
+function ArchCrosshair() {
+  const [colorIndex, setColorIndex] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setColorIndex(i => (i + 1) % ARCH_COLORS.length), 2200)
+    return () => clearInterval(id)
+  }, [])
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        width: 22,
+        height: 22,
+        opacity: 0.85,
+        pointerEvents: 'none',
+      }}
+    >
+      <svg viewBox="0 0 192 192" width="100%" height="100%" fill="none">
+        <path d={ARCH_PATH} fill={ARCH_COLORS[colorIndex]} style={{ transition: 'fill 0.4s ease' }} />
+      </svg>
+    </div>
+  )
+}
+
 function Gallery() {
-  const { scene } = useGLTF('/Box_with_SingularLightPoint.glb')
+  const { scene } = useGLTF('/gallerybegining.glb')
   useEffect(() => {
     scene.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) {
@@ -27,7 +56,7 @@ function Player() {
   const direction = useRef(new THREE.Vector3())
 
   useEffect(() => {
-    camera.position.set(0, 1.7, 5)
+    camera.position.set(0, 1.4, 5)
     const onKeyDown = (e: KeyboardEvent) => keys.add(e.code)
     const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code)
     window.addEventListener('keydown', onKeyDown)
@@ -84,6 +113,8 @@ export default function GalleryViewer() {
           onUnlock={() => setLocked(false)}
         />
       </Canvas>
+
+      {locked && <ArchCrosshair />}
 
       {!locked && (
         <div

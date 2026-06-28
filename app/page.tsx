@@ -24,6 +24,7 @@ const C = {
 // ── Real links ───────────────────────────────────────────────────────────────
 const LINKS = {
   appStore:         'https://apps.apple.com/us/app/artriumnow/id6765523334',
+  webApp:           'https://app.artrium.space',
   discord:          'https://discord.gg/JsMgwyAKM',
   linkedin:         'https://www.linkedin.com/company/artriumspace',
   collaborate:      'https://docs.google.com/forms/d/e/1FAIpQLSdB-cSRNlC6fPeJ_Nw67dN2TuAlNInpVVkPCwWiZM7BSYMXLA/viewform?usp=header',
@@ -37,8 +38,8 @@ const DOORS = [
     accentBg: C.gold,
     title:    'The app',
     desc:     'Find collaborators for your next project, join communities built around your craft and city, and land your next opportunity.',
-    cta:      'Open the app',
-    href:     LINKS.appStore,
+    cta:      'Open the web app',
+    href:     LINKS.webApp,
     external: true,
   },
   {
@@ -446,13 +447,13 @@ function HeroSection({ trailDisabled }: { trailDisabled: boolean }) {
           style={{ animation: 'fadeSlideUp 0.85s ease 0.9s both' }}
         >
           <a
-            href={LINKS.appStore}
+            href={LINKS.webApp}
             target="_blank"
             rel="noopener noreferrer"
             className="px-5 py-2.5 text-sm font-semibold tracking-wide transition-all hover:-translate-y-0.5 hover:shadow-lg"
             style={{ background: C.cream, color: C.espresso }}
           >
-            Open the app
+            Open the web app
           </a>
           <a
             href={LINKS.appStore}
