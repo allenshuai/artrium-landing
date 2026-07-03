@@ -25,8 +25,13 @@ body {
   font-family: var(--font-dm-sans), sans-serif;
 }
 
-body.arch-cursor-active {
-  cursor: none;
+body.arch-cursor-active,
+body.arch-cursor-active * {
+  cursor: none !important;
+}
+
+body.arch-cursor-active .cursor-custom {
+  cursor: url("/cursor-now.svg") 17 0, pointer !important;
 }
 
 @keyframes mouse-trail-fade {

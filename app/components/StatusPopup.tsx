@@ -2,15 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type { UpdateEntry } from "../lib/updateCategories";
 import { CATEGORY_META } from "../lib/updateCategories";
 
 const ESPRESSO = "#3F3A36";
 const CREAM = "#FFF8F2";
 const MEDGRAY = "#666666";
-
-const DISMISS_KEY = "artrium_dismissed_update_id";
 
 // Full-screen app pages, not marketing sections — the popup has no "first
 // section" to scroll away with here, and on /map it sits on top of Mapbox's
@@ -24,24 +22,15 @@ export function StatusPopup({
   update: UpdateEntry | null;
   currentCount?: number;
 }) {
-  const [visible, setVisible] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const pathname = usePathname();
 
-  useEffect(() => {
-    if (!update) return;
-    const dismissedId = window.localStorage.getItem(DISMISS_KEY);
-    if (dismissedId !== update.id) setVisible(true);
-  }, [update]);
-
-  if (!update || !visible) return null;
+  if (!update || dismissed) return null;
   if (HIDDEN_PATH_PREFIXES.some((p) => pathname?.startsWith(p))) return null;
 
   const meta = CATEGORY_META[update.category];
 
-  const dismiss = () => {
-    window.localStorage.setItem(DISMISS_KEY, update.id);
-    setVisible(false);
-  };
+  const dismiss = () => setDismissed(true);
 
   return (
     <div

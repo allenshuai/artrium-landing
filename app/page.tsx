@@ -206,6 +206,7 @@ function SiteNav() {
             { href: '/exhibition',  label: 'Exhibition', external: false },
             { href: '/map',         label: 'Map',        external: false },
             { href: LINKS.discord,  label: 'Community',  external: true  },
+            { href: '/updates',     label: 'Updates',     external: false },
           ].map(({ href, label, external }) =>
             external ? (
               <a

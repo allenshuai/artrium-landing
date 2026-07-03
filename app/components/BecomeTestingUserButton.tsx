@@ -12,7 +12,7 @@ export function BecomeTestingUserButton() {
       <button
         type="button"
         onClick={() => setTicketOpen(true)}
-        className="z-1000 group flex items-center gap-3 pl-2 pr-8 py-2 shadow-md transition hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#2d363b]/20 focus:ring-offset-2 focus:ring-offset-[#FFF8F2]"
+        className="cursor-custom z-1000 group flex items-center gap-3 pl-2 pr-8 py-2 shadow-md transition hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-[#2d363b]/20 focus:ring-offset-2 focus:ring-offset-[#FFF8F2]"
         style={{
           // Custom cursor: 'NOW' label + highlight; hotspot at top-center of 34×18 box => (17, 0)
           cursor: 'url("/cursor-now.svg") 17 0, pointer',
