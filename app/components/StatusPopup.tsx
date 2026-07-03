@@ -12,6 +12,11 @@ const MEDGRAY = "#666666";
 
 const DISMISS_KEY = "artrium_dismissed_update_id";
 
+// Full-screen app pages, not marketing sections — the popup has no "first
+// section" to scroll away with here, and on /map it sits on top of Mapbox's
+// own bottom-left controls. Keep it to the marketing pages only.
+const HIDDEN_PATH_PREFIXES = ["/updates", "/map", "/exhibition"];
+
 export function StatusPopup({
   update,
   currentCount = 0,
@@ -29,7 +34,7 @@ export function StatusPopup({
   }, [update]);
 
   if (!update || !visible) return null;
-  if (pathname?.startsWith("/updates")) return null;
+  if (HIDDEN_PATH_PREFIXES.some((p) => pathname?.startsWith(p))) return null;
 
   const meta = CATEGORY_META[update.category];
 
