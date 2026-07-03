@@ -1,0 +1,7 @@
+{
+  "date": "2026-07-01",
+  "category": "bug-fix",
+  "status": "current",
+  "title": "Known issues: notifications & desktop submissions",
+  "description": "Push notifications are showing up late (or not at all) and the icon isn't rendering right. We're also looking into an issue where submissions aren't going through from desktop. Fixes in progress."
+}

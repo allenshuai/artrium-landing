@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { DM_Sans, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { StatusPopup } from "./components/StatusPopup";
+import { getCurrentUpdates, getLatestCurrentUpdate } from "./lib/updates";
 
 const dmSans = DM_Sans({
   variable: "--font-dm-sans",
@@ -23,12 +25,15 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const latestUpdate = getLatestCurrentUpdate();
+  const currentCount = getCurrentUpdates().length;
   return (
     <html lang="en">
       <body
         className={`${dmSans.variable} ${geistMono.variable} antialiased`}
       >
         {children}
+        <StatusPopup update={latestUpdate} currentCount={currentCount} />
       </body>
     </html>
   );
