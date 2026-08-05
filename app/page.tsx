@@ -7,6 +7,8 @@ import { ColorSchemeProvider } from './contexts/ColorSchemeContext'
 import { ArchCursor } from './components/ArchCursor'
 import { MouseImageTrail } from './components/MouseImageTrail'
 import { ArtriumLogo } from './components/ArtriumLogo'
+import { SiteNav } from './components/SiteNav'
+import { LINKS } from './lib/links'
 
 // ── Brand palette ────────────────────────────────────────────────────────────
 const C = {
@@ -19,16 +21,6 @@ const C = {
   offwhite: '#F8F8F8',
   medgray:  '#666666',
   dark:     '#111111',
-}
-
-// ── Real links ───────────────────────────────────────────────────────────────
-const LINKS = {
-  appStore:         'https://apps.apple.com/us/app/artriumnow/id6765523334',
-  webApp:           'https://app.artrium.space',
-  discord:          'https://discord.gg/JsMgwyAKM',
-  linkedin:         'https://www.linkedin.com/company/artriumspace',
-  collaborate:      'https://docs.google.com/forms/d/e/1FAIpQLSdB-cSRNlC6fPeJ_Nw67dN2TuAlNInpVVkPCwWiZM7BSYMXLA/viewform?usp=header',
-  exhibitionSubmit: 'https://docs.google.com/forms/d/e/1FAIpQLSeXeG9x8zruZkR4tbHocaeHaxvlrXhz7qfU6hEYipwIIh8KQQ/viewform',
 }
 
 // ── Section data ─────────────────────────────────────────────────────────────
@@ -75,17 +67,6 @@ const MARQUEE_WORDS = [
 ]
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
-
-function useScrolled(threshold = 24) {
-  const [scrolled, setScrolled] = useState(false)
-  useEffect(() => {
-    const fn = () => setScrolled(window.scrollY > threshold)
-    fn()
-    window.addEventListener('scroll', fn, { passive: true })
-    return () => window.removeEventListener('scroll', fn)
-  }, [threshold])
-  return scrolled
-}
 
 function usePastHero() {
   const [past, setPast] = useState(false)
@@ -181,62 +162,6 @@ function HomeInner() {
         <FooterSection />
       </div>
     </TracePositionsProvider>
-  )
-}
-
-// ── Nav ────────────────────────────────────────────────────────────────────────
-function SiteNav() {
-  const scrolled = useScrolled()
-  return (
-    <nav
-      className="fixed top-0 left-0 right-0 z-50"
-      style={{
-        background:     scrolled ? C.espresso : 'transparent',
-        backdropFilter: scrolled ? 'blur(10px)' : 'none',
-        borderBottom:   scrolled ? `1px solid rgba(255,248,242,0.1)` : 'none',
-        transform:      scrolled ? 'translateY(0)' : 'translateY(-100%)',
-        opacity:        scrolled ? 1 : 0,
-        transition:     'transform 0.5s cubic-bezier(0.22,1,0.36,1), opacity 0.4s ease, background-color 0.4s ease',
-      }}
-    >
-      <div className="mx-auto max-w-[1180px] px-6 sm:px-8 flex items-center justify-center h-16 sm:h-[72px]">
-        <div className="flex gap-8 text-sm font-medium">
-          {[
-            { href: LINKS.appStore, label: 'App',        external: true  },
-            { href: '/exhibition',  label: 'Exhibition', external: false },
-            { href: '/map',         label: 'Map',        external: false },
-            { href: LINKS.discord,  label: 'Community',  external: true  },
-            { href: '/updates',     label: 'Updates',     external: false },
-          ].map(({ href, label, external }) =>
-            external ? (
-              <a
-                key={label}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="pb-0.5 border-b-2 border-transparent hover:border-current transition-all"
-                style={{ color: C.cream, opacity: 0.75 }}
-                onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '0.75')}
-              >
-                {label}
-              </a>
-            ) : (
-              <Link
-                key={label}
-                href={href}
-                className="pb-0.5 border-b-2 border-transparent hover:border-current transition-all"
-                style={{ color: C.cream, opacity: 0.75 }}
-                onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '0.75')}
-              >
-                {label}
-              </Link>
-            )
-          )}
-        </div>
-      </div>
-    </nav>
   )
 }
 
