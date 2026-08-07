@@ -25,8 +25,8 @@ type Teammate = {
 };
 
 const TEAM: Teammate[] = [
-  { file: "Allison.png", name: "Allison", labelPos: "top",    labelLeft: 66, labelTop: 24, labelRotate: 20 },
   { file: "Allen.png",   name: "Allen",                       labelTop: 84 },
+  { file: "Allison.png", name: "Allison", labelPos: "top",    labelLeft: 66, labelTop: 24, labelRotate: 20 },
   { file: "Amy.png",     name: "Amy",                         labelTop: 76, labelLeft: 56, labelRotate: -8 },
   { file: "Brianna.png", name: "Brianna", labelPos: "top",    labelTop: 22 },
   { file: "Elva.png",    name: "Elva",                        labelRotate: -10 },
