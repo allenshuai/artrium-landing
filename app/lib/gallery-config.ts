@@ -2,7 +2,7 @@
 // changing NEXT_PUBLIC_GALLERY_ROUTE_SLUG (no code changes needed).
 export const GALLERY_MODEL_URL =
   process.env.NEXT_PUBLIC_GALLERY_MODEL_URL ??
-  "https://assets.artrium.space/VirtualGallery8_3.glb";
+  "https://assets.artrium.space/VGallery8_10.glb";
 
 export const GALLERY_ROUTE_SLUG =
   process.env.NEXT_PUBLIC_GALLERY_ROUTE_SLUG ?? "test0123456789";
