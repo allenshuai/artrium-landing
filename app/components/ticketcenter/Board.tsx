@@ -115,7 +115,7 @@ export default function Board({
     const q = query.trim().toLowerCase();
     return tickets.filter((t) => {
       if (projectFilter !== "All" && t.project !== projectFilter) return false;
-      if (typeFilter.length > 0 && !typeFilter.includes(t.type)) return false;
+      if (typeFilter.length > 0 && !t.types.some((x) => typeFilter.includes(x))) return false;
       if (
         assigneeFilter.length > 0 &&
         !t.assignedTo.some((name) => assigneeFilter.includes(name))
@@ -183,6 +183,34 @@ export default function Board({
     } catch (err) {
       setTickets(before);
       showToast(err instanceof Error ? err.message : "Could not update assignees");
+      return false;
+    }
+  }
+
+  async function changeDueDate(ticket: Ticket, dueDate: string): Promise<boolean> {
+    const before = tickets;
+    setTickets((prev) =>
+      prev.map((t) => (t.number === ticket.number ? { ...t, dueDate } : t))
+    );
+    try {
+      const res = await fetch(
+        `/api/ticketcenter/tickets/${encodeURIComponent(ticket.number)}/due`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dueDate }),
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Update failed");
+      }
+      const { ticket: updated } = await res.json();
+      setTickets((prev) => prev.map((t) => (t.number === updated.number ? updated : t)));
+      return true;
+    } catch (err) {
+      setTickets(before);
+      showToast(err instanceof Error ? err.message : "Could not update the due date");
       return false;
     }
   }
@@ -430,6 +458,7 @@ export default function Board({
           onClose={() => setOpenTicketNumber(null)}
           onStatusChange={changeStatus}
           onAssigneesChange={changeAssignees}
+          onDueDateChange={changeDueDate}
           onSaveNotes={saveNotes}
         />
       )}
@@ -444,11 +473,9 @@ export default function Board({
         <BacklogModal
           tickets={tickets.filter((t) => t.status === "Backlog")}
           lead={lead}
+          roster={assignees}
           onClose={() => setShowBacklogModal(false)}
-          onOpen={(t) => {
-            setShowBacklogModal(false);
-            setOpenTicketNumber(t.number);
-          }}
+          onOpen={(t) => setOpenTicketNumber(t.number)}
           onStatusChange={changeStatus}
         />
       )}

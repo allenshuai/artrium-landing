@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TICKET_STATUSES, type Ticket, type TicketStatus } from "@/app/lib/ticketcenter/types";
+import {
+  TICKET_STATUSES,
+  formatDue,
+  isIsoDate,
+  type Ticket,
+  type TicketStatus,
+} from "@/app/lib/ticketcenter/types";
 import { TYPE_COLORS } from "./typeColors";
 import { splitLinks } from "@/app/lib/ticketcenter/validate";
 import { isOverdue } from "./TicketCard";
@@ -14,6 +20,7 @@ export default function TicketDrawer({
   onClose,
   onStatusChange,
   onAssigneesChange,
+  onDueDateChange,
   onSaveNotes,
 }: {
   ticket: Ticket;
@@ -22,11 +29,13 @@ export default function TicketDrawer({
   onClose: () => void;
   onStatusChange: (ticket: Ticket, status: TicketStatus) => void;
   onAssigneesChange: (ticket: Ticket, assignedTo: string[]) => Promise<boolean>;
+  onDueDateChange: (ticket: Ticket, dueDate: string) => Promise<boolean>;
   onSaveNotes: (ticket: Ticket, notes: string) => Promise<boolean>;
 }) {
   const [notes, setNotes] = useState(ticket.notes);
   const [saving, setSaving] = useState(false);
   const [savingAssignees, setSavingAssignees] = useState(false);
+  const [savingDue, setSavingDue] = useState(false);
   const [newAssignee, setNewAssignee] = useState("");
 
   useEffect(() => {
@@ -60,6 +69,13 @@ export default function TicketDrawer({
     setSavingAssignees(false);
   }
 
+  async function changeDue(value: string) {
+    if (savingDue || value === ticket.dueDate) return;
+    setSavingDue(true);
+    await onDueDateChange(ticket, value);
+    setSavingDue(false);
+  }
+
   async function addAssignee() {
     const name = newAssignee.trim();
     if (!name || ticket.assignedTo.includes(name) || savingAssignees) return;
@@ -71,8 +87,9 @@ export default function TicketDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-[#3F3A36]/30" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col overflow-y-auto border-l border-[#3F3A36]/25 bg-[#FFFAF6] p-6 shadow-[-6px_0_0_rgba(63,58,54,0.08)]">
+      {/* Sits above the Backlog modal (z-40) so opening a ticket from it doesn't lose the list. */}
+      <div className="fixed inset-0 z-50 bg-[#3F3A36]/30" onClick={onClose} />
+      <aside className="fixed inset-y-0 right-0 z-[55] flex w-full max-w-md flex-col overflow-y-auto border-l border-[#3F3A36]/25 bg-[#FFFAF6] p-6 shadow-[-6px_0_0_rgba(63,58,54,0.08)]">
         <div className="flex items-start justify-between gap-3">
           <div>
             <span className="font-mono text-xs text-[#3F3A36]/50">{ticket.number}</span>
@@ -88,12 +105,15 @@ export default function TicketDrawer({
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
-          <span
-            className="px-2.5 py-0.5 text-xs font-medium"
-            style={{ backgroundColor: TYPE_COLORS[ticket.type] }}
-          >
-            {ticket.type}
-          </span>
+          {ticket.types.map((t) => (
+            <span
+              key={t}
+              className="px-2.5 py-0.5 text-xs font-medium"
+              style={{ backgroundColor: TYPE_COLORS[t] }}
+            >
+              {t}
+            </span>
+          ))}
           <span className="border border-[#3F3A36]/25 px-2.5 py-0.5 text-xs">
             {ticket.project}
           </span>
@@ -168,23 +188,59 @@ export default function TicketDrawer({
               </>
             ) : (
               <dd className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                {ticket.assignedTo.length > 0
-                  ? ticket.assignedTo.map((name) => (
-                      <span key={name} className="inline-flex items-center gap-1.5">
-                        <Avatar name={name} size={22} />
-                        {name}
-                      </span>
-                    ))
-                  : "—"}
+                {ticket.assignedTo.length > 0 ? (
+                  ticket.assignedTo.map((name) => (
+                    <span key={name} className="inline-flex items-center gap-1.5">
+                      <Avatar name={name} size={22} />
+                      {name}
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[#3F3A36]/40">TBD</span>
+                )}
               </dd>
             )}
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-[#3F3A36]/50">Due date</dt>
-            <dd className={`mt-0.5 ${overdue ? "font-semibold text-[#C0392B]" : ""}`}>
-              {ticket.dueDate || "—"}
-              {overdue ? " (overdue)" : ""}
-            </dd>
+            {lead ? (
+              <>
+                <div className="mt-1 flex gap-1.5">
+                  <input
+                    type="date"
+                    value={isIsoDate(ticket.dueDate) ? ticket.dueDate : ""}
+                    disabled={savingDue}
+                    onChange={(e) => changeDue(e.target.value)}
+                    className="w-full border border-[#3F3A36]/25 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-[#3F3A36] disabled:opacity-50"
+                  />
+                  {ticket.dueDate && (
+                    <button
+                      type="button"
+                      onClick={() => changeDue("")}
+                      disabled={savingDue}
+                      className="shrink-0 border border-[#3F3A36]/25 px-2.5 py-1 text-xs hover:border-[#3F3A36] disabled:opacity-40"
+                    >
+                      Set TBD
+                    </button>
+                  )}
+                </div>
+                {ticket.dueDate && !isIsoDate(ticket.dueDate) && (
+                  <p className="mt-1 text-xs text-[#3F3A36]/50">
+                    Sheet says “{ticket.dueDate}” — pick a date above to replace it.
+                  </p>
+                )}
+                {overdue && <p className="mt-1 text-xs font-semibold text-[#C0392B]">Overdue</p>}
+              </>
+            ) : (
+              <dd
+                className={`mt-0.5 ${
+                  overdue ? "font-semibold text-[#C0392B]" : ticket.dueDate ? "" : "text-[#3F3A36]/40"
+                }`}
+              >
+                {formatDue(ticket.dueDate)}
+                {overdue ? " (overdue)" : ""}
+              </dd>
+            )}
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-[#3F3A36]/50">

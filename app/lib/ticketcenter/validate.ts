@@ -14,6 +14,13 @@ export function isValidType(t: unknown): t is TicketType {
   return typeof t === "string" && (TICKET_TYPES as readonly string[]).includes(t);
 }
 
+/** Non-empty array of distinct valid types. */
+export function isValidTypes(a: unknown): a is TicketType[] {
+  return (
+    Array.isArray(a) && a.length > 0 && a.every(isValidType) && new Set(a).size === a.length
+  );
+}
+
 export function isValidDueDate(d: unknown): d is string {
   if (typeof d !== "string") return false;
   if (d === "") return true;
@@ -54,7 +61,7 @@ export function validateNewTicket(
   if (!title) return { ok: false, error: "Title is required" };
   if (title.length >= 200) return { ok: false, error: "Title must be under 200 characters" };
 
-  if (!isValidType(body.type)) return { ok: false, error: "Invalid type" };
+  if (!isValidTypes(body.types)) return { ok: false, error: "Pick at least one type" };
 
   const project = typeof body.project === "string" ? body.project.trim() : "";
   if (!project) return { ok: false, error: "Project is required" };
@@ -80,6 +87,6 @@ export function validateNewTicket(
 
   return {
     ok: true,
-    input: { title, type: body.type, project, status, assignedTo, dueDate, description, link },
+    input: { title, types: body.types, project, status, assignedTo, dueDate, description, link },
   };
 }

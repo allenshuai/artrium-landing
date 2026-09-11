@@ -10,11 +10,9 @@ const ESPRESSO = "#3F3A36";
 const CREAM = "#FFF8F2";
 const MEDGRAY = "#666666";
 
-// Full-screen app pages, not marketing sections — the popup has no "first
-// section" to scroll away with here, and on /map it sits on top of Mapbox's
-// own bottom-left controls. Keep it to the marketing pages only.
-const HIDDEN_PATH_PREFIXES = ["/updates", "/map", "/exhibition"];
-
+// Home page only. Everywhere else it either has no "first section" to scroll
+// away with, or collides with page chrome (Mapbox controls on /map, the board
+// on /ticketcenter).
 export function StatusPopup({
   update,
   currentCount = 0,
@@ -26,7 +24,7 @@ export function StatusPopup({
   const pathname = usePathname();
 
   if (!update || dismissed) return null;
-  if (HIDDEN_PATH_PREFIXES.some((p) => pathname?.startsWith(p))) return null;
+  if (pathname !== "/") return null;
 
   const meta = CATEGORY_META[update.category];
 

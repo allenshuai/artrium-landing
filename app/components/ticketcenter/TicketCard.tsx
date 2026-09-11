@@ -1,11 +1,17 @@
 "use client";
 
-import { TICKET_STATUSES, type Ticket, type TicketStatus } from "@/app/lib/ticketcenter/types";
+import {
+  TICKET_STATUSES,
+  formatDue,
+  isIsoDate,
+  type Ticket,
+  type TicketStatus,
+} from "@/app/lib/ticketcenter/types";
 import { TYPE_COLORS } from "./typeColors";
 import Avatar from "./Avatar";
 
 export function isOverdue(t: Ticket): boolean {
-  if (!t.dueDate || t.status === "Done") return false;
+  if (!isIsoDate(t.dueDate) || t.status === "Done") return false;
   const today = new Date();
   const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
     today.getDate()
@@ -38,40 +44,49 @@ export default function TicketCard({
       onKeyDown={(e) => {
         if (e.key === "Enter") onOpen(ticket);
       }}
-      style={{ "--tc": TYPE_COLORS[ticket.type] } as React.CSSProperties}
+      style={{ "--tc": TYPE_COLORS[ticket.types[0]] } as React.CSSProperties}
       className={`cursor-pointer border bg-white p-3 shadow-[3px_3px_0_var(--tc)] transition hover:-translate-y-0.5 hover:shadow-[4px_5px_0_var(--tc)] ${
         overdue ? "border-[#C0392B]/60" : "border-[#3F3A36]/20"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="font-mono text-[11px] text-[#3F3A36]/50">{ticket.number}</span>
-        <span
-          className="px-2 py-0.5 text-[10px] font-medium text-[#3F3A36]"
-          style={{ backgroundColor: TYPE_COLORS[ticket.type] }}
-        >
-          {ticket.type}
+        <span className="flex flex-wrap justify-end gap-1">
+          {ticket.types.map((t) => (
+            <span
+              key={t}
+              className="px-2 py-0.5 text-[10px] font-medium text-[#3F3A36]"
+              style={{ backgroundColor: TYPE_COLORS[t] }}
+            >
+              {t}
+            </span>
+          ))}
         </span>
       </div>
       <p className="mt-1.5 text-sm font-medium leading-snug">{ticket.title}</p>
-      {(ticket.assignedTo.length > 0 || ticket.dueDate) && (
-        <div className="mt-2 flex items-center justify-between gap-2">
+      <div className="mt-2 flex items-center justify-between gap-2">
+        {ticket.assignedTo.length > 0 ? (
           <div className="flex -space-x-1.5">
             {ticket.assignedTo.map((name) => (
               <Avatar key={name} name={name} size={20} />
             ))}
           </div>
-          {ticket.dueDate && (
-            <span
-              className={`text-[11px] ${
-                overdue ? "font-semibold text-[#C0392B]" : "text-[#3F3A36]/50"
-              }`}
-            >
-              {overdue ? "⚠ " : ""}
-              {ticket.dueDate}
-            </span>
-          )}
-        </div>
-      )}
+        ) : (
+          <span className="text-[11px] text-[#3F3A36]/40">TBD</span>
+        )}
+        <span
+          className={`text-[11px] ${
+            overdue
+              ? "font-semibold text-[#C0392B]"
+              : ticket.dueDate
+                ? "text-[#3F3A36]/50"
+                : "text-[#3F3A36]/40"
+          }`}
+        >
+          {overdue ? "⚠ " : ""}
+          {formatDue(ticket.dueDate)}
+        </span>
+      </div>
       {lead && (
         <select
           value={ticket.status}

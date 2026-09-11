@@ -1,6 +1,7 @@
 import "server-only";
 import { google, type sheets_v4 } from "googleapis";
 import {
+  parseAssignees,
   rowToTicket,
   type NewTicketInput,
   type Ticket,
@@ -143,6 +144,29 @@ export async function updateTicketAssignees(
   return { ...ticket, assignedTo: assignees, updated: now, updatedBy: leadName };
 }
 
+/** dueDate is "YYYY-MM-DD" or "" (TBD). */
+export async function updateTicketDueDate(
+  ticketNumber: string,
+  dueDate: string,
+  leadName: string
+): Promise<Ticket> {
+  const { rowNumber, ticket } = await findTicketRow(ticketNumber);
+  const now = new Date().toISOString();
+  await getSheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        { range: `Tickets!G${rowNumber}`, values: [[dueDate]] },
+        { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
+      ],
+    },
+  });
+  await appendLog(ticketNumber, "due", ticket.dueDate, dueDate, leadName);
+  bustCache();
+  return { ...ticket, dueDate, updated: now, updatedBy: leadName };
+}
+
 export async function updateTicketNotes(
   ticketNumber: string,
   notes: string,
@@ -181,13 +205,10 @@ export async function createTicket(
   const ticket: Ticket = {
     number,
     title: input.title,
-    type: input.type,
+    types: input.types,
     project: input.project,
     status,
-    assignedTo: (input.assignedTo ?? "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean),
+    assignedTo: parseAssignees(input.assignedTo ?? ""),
     dueDate: input.dueDate ?? "",
     description: input.description ?? "",
     notes: "",
@@ -206,7 +227,7 @@ export async function createTicket(
         [
           ticket.number,
           ticket.title,
-          ticket.type,
+          ticket.types.join(", "),
           ticket.project,
           ticket.status,
           ticket.assignedTo.join(", "),

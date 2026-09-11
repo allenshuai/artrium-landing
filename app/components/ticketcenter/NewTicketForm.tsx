@@ -9,6 +9,7 @@ import {
   type TicketType,
 } from "@/app/lib/ticketcenter/types";
 import { PEOPLE } from "./people";
+import { TYPE_COLORS } from "./typeColors";
 import Avatar from "./Avatar";
 
 const NEW_PROJECT = "__new__";
@@ -23,7 +24,7 @@ export default function NewTicketForm({
   onCreated: (ticket: Ticket) => void;
 }) {
   const [title, setTitle] = useState("");
-  const [type, setType] = useState<TicketType>("design");
+  const [types, setTypes] = useState<TicketType[]>(["design"]);
   const [projectChoice, setProjectChoice] = useState(projects[0] ?? NEW_PROJECT);
   const [newProject, setNewProject] = useState("");
   const [status, setStatus] = useState<TicketStatus>("Backlog");
@@ -48,7 +49,7 @@ export default function NewTicketForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          type,
+          types,
           project,
           status,
           assignedTo: assignedTo.join(", "),
@@ -95,32 +96,42 @@ export default function NewTicketForm({
         <label className={labelCls}>Title *</label>
         <input value={title} onChange={(e) => setTitle(e.target.value)} className={inputCls} autoFocus />
 
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelCls}>Type *</label>
-            <select value={type} onChange={(e) => setType(e.target.value as TicketType)} className={inputCls}>
-              {TICKET_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>Status</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as TicketStatus)}
-              className={inputCls}
-            >
-              {TICKET_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s}
-                </option>
-              ))}
-            </select>
-          </div>
+        <label className={labelCls}>Type * <span className="normal-case text-[#3F3A36]/40">(pick one or more)</span></label>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {TICKET_TYPES.map((t) => {
+            const active = types.includes(t);
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() =>
+                  setTypes((prev) => (active ? prev.filter((x) => x !== t) : [...prev, t]))
+                }
+                className={`border px-2.5 py-1 text-xs font-medium transition ${
+                  active
+                    ? "border-[#3F3A36] shadow-[2px_2px_0_#3F3A36]"
+                    : "border-transparent opacity-60 hover:opacity-100"
+                }`}
+                style={{ backgroundColor: TYPE_COLORS[t] }}
+              >
+                {t}
+              </button>
+            );
+          })}
         </div>
+
+        <label className={labelCls}>Status</label>
+        <select
+          value={status}
+          onChange={(e) => setStatus(e.target.value as TicketStatus)}
+          className={inputCls}
+        >
+          {TICKET_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
 
         <label className={labelCls}>Project *</label>
         <select
@@ -205,7 +216,7 @@ export default function NewTicketForm({
 
         <button
           type="submit"
-          disabled={busy || !title.trim() || !project || needsAssignee}
+          disabled={busy || !title.trim() || !project || types.length === 0 || needsAssignee}
           className="mt-5 w-full border border-[#3F3A36] bg-[#3F3A36] px-3 py-2 text-sm font-medium text-[#FFFAF6] disabled:opacity-50"
         >
           {busy ? "Creating…" : "Create ticket"}
