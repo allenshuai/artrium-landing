@@ -73,7 +73,7 @@ export default function LeadUnlock({
         onClick={() => setOpen((v) => !v)}
         className="border border-[#3F3A36]/30 px-3 py-1 text-sm transition hover:bg-[#3F3A36] hover:text-[#FFFAF6]"
       >
-        Lead mode
+        Edit mode
       </button>
       {open && (
         <form
