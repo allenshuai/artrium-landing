@@ -10,18 +10,24 @@ import Avatar from "./Avatar";
 export default function TicketDrawer({
   ticket,
   lead,
+  roster,
   onClose,
   onStatusChange,
+  onAssigneesChange,
   onSaveNotes,
 }: {
   ticket: Ticket;
   lead: string | null;
+  roster: string[];
   onClose: () => void;
   onStatusChange: (ticket: Ticket, status: TicketStatus) => void;
+  onAssigneesChange: (ticket: Ticket, assignedTo: string[]) => Promise<boolean>;
   onSaveNotes: (ticket: Ticket, notes: string) => Promise<boolean>;
 }) {
   const [notes, setNotes] = useState(ticket.notes);
   const [saving, setSaving] = useState(false);
+  const [savingAssignees, setSavingAssignees] = useState(false);
+  const [newAssignee, setNewAssignee] = useState("");
 
   useEffect(() => {
     setNotes(ticket.notes);
@@ -41,6 +47,26 @@ export default function TicketDrawer({
     setSaving(true);
     await onSaveNotes(ticket, notes);
     setSaving(false);
+  }
+
+  async function toggleAssignee(name: string) {
+    if (savingAssignees) return;
+    const active = ticket.assignedTo.includes(name);
+    const next = active
+      ? ticket.assignedTo.filter((n) => n !== name)
+      : [...ticket.assignedTo, name];
+    setSavingAssignees(true);
+    await onAssigneesChange(ticket, next);
+    setSavingAssignees(false);
+  }
+
+  async function addAssignee() {
+    const name = newAssignee.trim();
+    if (!name || ticket.assignedTo.includes(name) || savingAssignees) return;
+    setSavingAssignees(true);
+    const ok = await onAssigneesChange(ticket, [...ticket.assignedTo, name]);
+    setSavingAssignees(false);
+    if (ok) setNewAssignee("");
   }
 
   return (
@@ -94,16 +120,64 @@ export default function TicketDrawer({
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-[#3F3A36]/50">Assigned to</dt>
-            <dd className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-              {ticket.assignedTo.length > 0
-                ? ticket.assignedTo.map((name) => (
-                    <span key={name} className="inline-flex items-center gap-1.5">
-                      <Avatar name={name} size={22} />
-                      {name}
-                    </span>
-                  ))
-                : "—"}
-            </dd>
+            {lead ? (
+              <>
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                  {roster.map((name) => {
+                    const active = ticket.assignedTo.includes(name);
+                    return (
+                      <button
+                        key={name}
+                        type="button"
+                        disabled={savingAssignees}
+                        onClick={() => toggleAssignee(name)}
+                        className={`flex items-center gap-1.5 border py-0.5 pl-1 pr-2.5 text-xs transition disabled:opacity-50 ${
+                          active
+                            ? "border-[#3F3A36] bg-[#3F3A36] text-[#FFFAF6]"
+                            : "border-[#3F3A36]/20 bg-white hover:border-[#3F3A36]/50"
+                        }`}
+                      >
+                        <Avatar name={name} size={20} />
+                        {name}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-1.5 flex gap-1.5">
+                  <input
+                    value={newAssignee}
+                    onChange={(e) => setNewAssignee(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addAssignee();
+                      }
+                    }}
+                    placeholder="Add someone not listed…"
+                    className="w-full border border-[#3F3A36]/25 bg-white px-2.5 py-1 text-xs outline-none focus:border-[#3F3A36]"
+                  />
+                  <button
+                    type="button"
+                    onClick={addAssignee}
+                    disabled={!newAssignee.trim() || savingAssignees}
+                    className="shrink-0 border border-[#3F3A36] bg-[#3F3A36] px-2.5 py-1 text-xs font-medium text-[#FFFAF6] disabled:opacity-40"
+                  >
+                    Add
+                  </button>
+                </div>
+              </>
+            ) : (
+              <dd className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                {ticket.assignedTo.length > 0
+                  ? ticket.assignedTo.map((name) => (
+                      <span key={name} className="inline-flex items-center gap-1.5">
+                        <Avatar name={name} size={22} />
+                        {name}
+                      </span>
+                    ))
+                  : "—"}
+              </dd>
+            )}
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-[#3F3A36]/50">Due date</dt>

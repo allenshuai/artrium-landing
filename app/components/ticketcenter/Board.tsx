@@ -157,6 +157,34 @@ export default function Board({
     }
   }
 
+  async function changeAssignees(ticket: Ticket, assignedTo: string[]): Promise<boolean> {
+    const before = tickets;
+    setTickets((prev) =>
+      prev.map((t) => (t.number === ticket.number ? { ...t, assignedTo } : t))
+    );
+    try {
+      const res = await fetch(
+        `/api/ticketcenter/tickets/${encodeURIComponent(ticket.number)}/assignees`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ assignedTo }),
+        }
+      );
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? "Update failed");
+      }
+      const { ticket: updated } = await res.json();
+      setTickets((prev) => prev.map((t) => (t.number === updated.number ? updated : t)));
+      return true;
+    } catch (err) {
+      setTickets(before);
+      showToast(err instanceof Error ? err.message : "Could not update assignees");
+      return false;
+    }
+  }
+
   async function saveNotes(ticket: Ticket, notes: string): Promise<boolean> {
     const before = tickets;
     setTickets((prev) =>
@@ -383,8 +411,10 @@ export default function Board({
         <TicketDrawer
           ticket={openTicket}
           lead={lead}
+          roster={assignees}
           onClose={() => setOpenTicketNumber(null)}
           onStatusChange={changeStatus}
+          onAssigneesChange={changeAssignees}
           onSaveNotes={saveNotes}
         />
       )}

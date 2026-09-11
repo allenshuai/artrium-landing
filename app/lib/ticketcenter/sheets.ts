@@ -120,6 +120,29 @@ export async function updateTicketStatus(
   return { ...ticket, status: newStatus, updated: now, updatedBy: leadName };
 }
 
+export async function updateTicketAssignees(
+  ticketNumber: string,
+  assignees: string[],
+  leadName: string
+): Promise<Ticket> {
+  const { rowNumber, ticket } = await findTicketRow(ticketNumber);
+  const now = new Date().toISOString();
+  const joined = assignees.join(", ");
+  await getSheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        { range: `Tickets!F${rowNumber}`, values: [[joined]] },
+        { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
+      ],
+    },
+  });
+  await appendLog(ticketNumber, "assignees", ticket.assignedTo.join(", "), joined, leadName);
+  bustCache();
+  return { ...ticket, assignedTo: assignees, updated: now, updatedBy: leadName };
+}
+
 export async function updateTicketNotes(
   ticketNumber: string,
   notes: string,

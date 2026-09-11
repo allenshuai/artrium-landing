@@ -39,6 +39,13 @@ export function splitLinks(l: string): string[] {
   return l.split(/[\s,]+/).filter(Boolean);
 }
 
+/** Accepts an array of non-empty name strings under 60 chars each, deduped. */
+export function isValidAssignees(a: unknown): a is string[] {
+  if (!Array.isArray(a)) return false;
+  if (a.length > 20) return false;
+  return a.every((n) => typeof n === "string" && n.trim().length > 0 && n.length < 60);
+}
+
 /** Validates a create-ticket body. Returns a clean input or an error message. */
 export function validateNewTicket(
   body: Record<string, unknown>
