@@ -18,6 +18,7 @@ import TicketCard from "./TicketCard";
 import TicketDrawer from "./TicketDrawer";
 import NewTicketForm from "./NewTicketForm";
 import LeadUnlock from "./LeadUnlock";
+import BacklogModal from "./BacklogModal";
 
 export default function Board({
   initialTickets,
@@ -38,6 +39,7 @@ export default function Board({
   const [refreshing, setRefreshing] = useState(false);
   const [openTicketNumber, setOpenTicketNumber] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [showBacklogModal, setShowBacklogModal] = useState(false);
   const [toast, setToast] = useState("");
   const [dragOverStatus, setDragOverStatus] = useState<TicketStatus | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -372,8 +374,21 @@ export default function Board({
                 >
                   <h3 className="flex items-center justify-between border-b border-[#3F3A36]/10 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-[#3F3A36]/60">
                     {status}
-                    <span className="border border-[#3F3A36]/15 bg-white px-1.5 py-0.5 font-mono text-[10px]">
-                      {inColumn.length}
+                    <span className="flex items-center gap-1">
+                      <span className="border border-[#3F3A36]/15 bg-white px-1.5 py-0.5 font-mono text-[10px]">
+                        {inColumn.length}
+                      </span>
+                      {status === "Backlog" && (
+                        <button
+                          type="button"
+                          onClick={() => setShowBacklogModal(true)}
+                          aria-label="View full backlog"
+                          title="View full backlog"
+                          className="border border-[#3F3A36]/15 bg-white px-1 py-0.5 text-[10px] leading-none transition hover:border-[#3F3A36] hover:bg-[#3F3A36] hover:text-[#FFFAF6]"
+                        >
+                          ⛶
+                        </button>
+                      )}
                     </span>
                   </h3>
                   <div className="flex-1 space-y-2 overflow-y-auto p-2">
@@ -423,6 +438,18 @@ export default function Board({
           projects={projects}
           onClose={() => setShowNewForm(false)}
           onCreated={onCreated}
+        />
+      )}
+      {showBacklogModal && (
+        <BacklogModal
+          tickets={tickets.filter((t) => t.status === "Backlog")}
+          lead={lead}
+          onClose={() => setShowBacklogModal(false)}
+          onOpen={(t) => {
+            setShowBacklogModal(false);
+            setOpenTicketNumber(t.number);
+          }}
+          onStatusChange={changeStatus}
         />
       )}
       {toast && (

@@ -72,6 +72,10 @@ export function validateNewTicket(
   if (!isValidLink(link)) return { ok: false, error: "Link must be an http(s) URL" };
 
   const assignedTo = typeof body.assignedTo === "string" ? body.assignedTo.trim() : "";
+  if (status !== "Backlog" && !assignedTo) {
+    return { ok: false, error: "Assignee is required unless the ticket is in Backlog" };
+  }
+
   const description = typeof body.description === "string" ? body.description.trim() : "";
 
   return {

@@ -35,6 +35,7 @@ export default function NewTicketForm({
   const [busy, setBusy] = useState(false);
 
   const project = projectChoice === NEW_PROJECT ? newProject.trim() : projectChoice;
+  const needsAssignee = status !== "Backlog" && assignedTo.length === 0;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -143,7 +144,9 @@ export default function NewTicketForm({
           />
         )}
 
-        <label className={labelCls}>Assigned to</label>
+        <label className={labelCls}>
+          Assigned to {status !== "Backlog" && <span className="normal-case text-[#3F3A36]/40">(required)</span>}
+        </label>
         <div className="mt-1 flex flex-wrap gap-1.5">
           {PEOPLE.map((name) => {
             const active = assignedTo.includes(name);
@@ -193,11 +196,16 @@ export default function NewTicketForm({
           className={inputCls}
         />
 
+        {needsAssignee && (
+          <p className="mt-3 text-xs text-[#3F3A36]/60">
+            Pick at least one assignee, or set status back to Backlog to leave it unassigned.
+          </p>
+        )}
         {error && <p className="mt-3 text-sm text-[#C0392B]">{error}</p>}
 
         <button
           type="submit"
-          disabled={busy || !title.trim() || !project}
+          disabled={busy || !title.trim() || !project || needsAssignee}
           className="mt-5 w-full border border-[#3F3A36] bg-[#3F3A36] px-3 py-2 text-sm font-medium text-[#FFFAF6] disabled:opacity-50"
         >
           {busy ? "Creating…" : "Create ticket"}
