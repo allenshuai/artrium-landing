@@ -8,8 +8,15 @@ import {
   type TicketStatus,
 } from "./types";
 import { isValidStatus } from "./validate";
+import {
+  fieldsToCells,
+  rowToMeeting,
+  type Meeting,
+  type MeetingFields,
+} from "./meetings";
 
 const TICKETS_RANGE = "Tickets!A2:M";
+const MEETINGS_RANGE = "Meetings!A2:K";
 const CACHE_TTL_MS = 20_000;
 
 let sheetsClient: sheets_v4.Sheets | null = null;
@@ -245,4 +252,103 @@ export async function createTicket(
   await appendLog(number, "created", "", status, leadName);
   bustCache();
   return ticket;
+}
+
+// ── Meetings tab ──
+
+let meetingCache: { meetings: Meeting[]; at: number } | null = null;
+
+export async function getMeetings(): Promise<Meeting[]> {
+  if (meetingCache && Date.now() - meetingCache.at < CACHE_TTL_MS) return meetingCache.meetings;
+  const meetings = await readMeetings();
+  meetingCache = { meetings, at: Date.now() };
+  return meetings;
+}
+
+async function readMeetings(): Promise<Meeting[]> {
+  const res = await getSheets().spreadsheets.values.get({
+    spreadsheetId: sheetId(),
+    range: MEETINGS_RANGE,
+  });
+  const rows = (res.data.values ?? []) as string[][];
+  const meetings: Meeting[] = [];
+  for (const row of rows) {
+    const m = rowToMeeting(row);
+    if (m) meetings.push(m);
+  }
+  return meetings;
+}
+
+export class MeetingNotFoundError extends Error {
+  constructor(id: string) {
+    super(`Meeting ${id} not found`);
+  }
+}
+
+async function findMeetingRow(id: string): Promise<{ rowNumber: number; meeting: Meeting }> {
+  const meetings = await readMeetings();
+  const idx = meetings.findIndex((m) => m.id === id);
+  if (idx === -1) throw new MeetingNotFoundError(id);
+  return { rowNumber: idx + 2, meeting: meetings[idx] };
+}
+
+export async function createMeeting(fields: MeetingFields, leadName: string): Promise<Meeting> {
+  const meetings = await readMeetings();
+  let max = 0;
+  for (const m of meetings) {
+    const hit = m.id.match(/^MTG-(\d+)$/);
+    if (hit) max = Math.max(max, parseInt(hit[1], 10));
+  }
+  const now = new Date().toISOString();
+  const meeting: Meeting = {
+    id: "MTG-" + String(max + 1).padStart(3, "0"),
+    ...fields,
+    created: now,
+    updated: now,
+    updatedBy: leadName,
+  };
+  await getSheets().spreadsheets.values.append({
+    spreadsheetId: sheetId(),
+    range: "Meetings!A:K",
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [[meeting.id, ...fieldsToCells(fields), now, now, leadName]] },
+  });
+  await appendLog(meeting.id, "meeting:created", "", fields.status, leadName);
+  meetingCache = null;
+  return meeting;
+}
+
+export async function updateMeeting(
+  id: string,
+  patch: Partial<MeetingFields>,
+  leadName: string
+): Promise<Meeting> {
+  const { rowNumber, meeting } = await findMeetingRow(id);
+  const now = new Date().toISOString();
+  const next: MeetingFields = {
+    title: patch.title ?? meeting.title,
+    status: patch.status ?? meeting.status,
+    date: patch.date ?? meeting.date,
+    time: patch.time ?? meeting.time,
+    link: patch.link ?? meeting.link,
+    location: patch.location ?? meeting.location,
+    notes: patch.notes ?? meeting.notes,
+  };
+  await getSheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: sheetId(),
+    requestBody: {
+      valueInputOption: "RAW",
+      data: [
+        { range: `Meetings!B${rowNumber}:H${rowNumber}`, values: [fieldsToCells(next)] },
+        { range: `Meetings!J${rowNumber}:K${rowNumber}`, values: [[now, leadName]] },
+      ],
+    },
+  });
+  const changed = (Object.keys(patch) as (keyof MeetingFields)[]).filter(
+    (k) => patch[k] !== undefined && patch[k] !== meeting[k]
+  );
+  await appendLog(id, "meeting:" + (changed.join(",") || "touch"), meeting.status, next.status, leadName);
+  meetingCache = null;
+  return { ...meeting, ...next, updated: now, updatedBy: leadName };
 }

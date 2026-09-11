@@ -2,7 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { LEAD_COOKIE, verifyLeadToken } from "./auth";
-import { TicketNotFoundError } from "./sheets";
+import { MeetingNotFoundError, TicketNotFoundError } from "./sheets";
 
 /** Returns the unlocked lead's name, or null. */
 export async function currentLead(): Promise<string | null> {
@@ -20,7 +20,7 @@ export async function requireLead(): Promise<string | NextResponse> {
 }
 
 export function errorResponse(err: unknown): NextResponse {
-  if (err instanceof TicketNotFoundError) {
+  if (err instanceof TicketNotFoundError || err instanceof MeetingNotFoundError) {
     return NextResponse.json({ error: err.message }, { status: 404 });
   }
   console.error("[ticketcenter]", err);

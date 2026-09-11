@@ -5,6 +5,13 @@ import {
   type TicketStatus,
   type TicketType,
 } from "./types";
+import {
+  MEETING_STATUSES,
+  normalizeDate,
+  normalizeTime,
+  type MeetingFields,
+  type MeetingStatus,
+} from "./meetings";
 
 export function isValidStatus(s: unknown): s is TicketStatus {
   return typeof s === "string" && (TICKET_STATUSES as readonly string[]).includes(s);
@@ -89,4 +96,67 @@ export function validateNewTicket(
     ok: true,
     input: { title, types: body.types, project, status, assignedTo, dueDate, description, link },
   };
+}
+
+/**
+ * Validates meeting fields from a request body. With `partial`, missing keys
+ * are left undefined (PATCH); otherwise title is required and the rest default
+ * to blank / "Scheduling".
+ */
+export function validateMeeting(
+  body: Record<string, unknown>,
+  partial: boolean
+): { ok: true; fields: Partial<MeetingFields> } | { ok: false; error: string } {
+  const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string).trim() : undefined);
+  const out: Partial<MeetingFields> = {};
+
+  const title = str("title");
+  if (title !== undefined) {
+    if (!title) return { ok: false, error: "Title is required" };
+    if (title.length >= 200) return { ok: false, error: "Title must be under 200 characters" };
+    out.title = title;
+  } else if (!partial) {
+    return { ok: false, error: "Title is required" };
+  }
+
+  if (body.status !== undefined) {
+    if (!(MEETING_STATUSES as readonly string[]).includes(body.status as string)) {
+      return { ok: false, error: "Invalid status" };
+    }
+    out.status = body.status as MeetingStatus;
+  } else if (!partial) {
+    out.status = "Scheduling";
+  }
+
+  const date = str("date");
+  if (date !== undefined) {
+    if (date.length > 40) return { ok: false, error: "Date is too long" };
+    out.date = normalizeDate(date);
+  } else if (!partial) out.date = "";
+
+  const time = str("time");
+  if (time !== undefined) {
+    if (time.length > 20) return { ok: false, error: "Time is too long" };
+    out.time = normalizeTime(time);
+  } else if (!partial) out.time = "";
+
+  const link = str("link");
+  if (link !== undefined) {
+    if (!isValidLink(link)) return { ok: false, error: "Link must be an http(s) URL" };
+    out.link = link;
+  } else if (!partial) out.link = "";
+
+  const location = str("location");
+  if (location !== undefined) {
+    if (location.length > 120) return { ok: false, error: "Location is too long" };
+    out.location = location;
+  } else if (!partial) out.location = "";
+
+  const notes = str("notes");
+  if (notes !== undefined) {
+    if (notes.length > 5000) return { ok: false, error: "Notes are too long" };
+    out.notes = notes;
+  } else if (!partial) out.notes = "";
+
+  return { ok: true, fields: out };
 }

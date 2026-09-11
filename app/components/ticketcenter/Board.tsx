@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { Meeting } from "@/app/lib/ticketcenter/meetings";
 import {
   TICKET_STATUSES,
   TICKET_TYPES,
@@ -19,13 +22,16 @@ import TicketDrawer from "./TicketDrawer";
 import NewTicketForm from "./NewTicketForm";
 import LeadUnlock from "./LeadUnlock";
 import BacklogModal from "./BacklogModal";
+import MeetingsSection from "./MeetingsSection";
 
 export default function Board({
   initialTickets,
+  initialMeetings,
   initialLead,
   initialError,
 }: {
   initialTickets: Ticket[];
+  initialMeetings: Meeting[];
   initialLead: string | null;
   initialError: boolean;
 }) {
@@ -254,7 +260,13 @@ export default function Board({
     <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
       {/* Header */}
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-xl font-semibold sm:text-2xl">Artrium Ticket Center</h1>
+        <div className="flex items-center gap-3">
+          <Link href="/" aria-label="Artrium home" className="shrink-0">
+            <Image src="/newLogo.svg" alt="Artrium" width={151} height={26} priority className="h-[26px] w-auto" />
+          </Link>
+          <span aria-hidden className="h-6 w-px bg-[#3F3A36]/25" />
+          <h1 className="text-xl font-semibold sm:text-2xl">Ticket Center</h1>
+        </div>
         <div className="flex items-center gap-2">
           {lead && (
             <button
@@ -448,6 +460,8 @@ export default function Board({
           )}
         </div>
       )}
+
+      <MeetingsSection initialMeetings={initialMeetings} lead={lead} onToast={showToast} />
 
       {/* Overlays */}
       {openTicket && (
