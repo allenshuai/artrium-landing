@@ -150,31 +150,42 @@ All `/dev/exhibition/*` and `/api/dev/exhibition/*` (except auth) require a vali
 
 ## Suggested file layout (keep lean)
 
+Built (M1 + M2) is unmarked; `+ M3` is what the next milestone adds and is the
+only thing that should appear.
+
 ```text
 app/dev/exhibition/
   layout.tsx                 # noindex + minimal chrome
   login/page.tsx
   page.tsx                   # hub
   parser/page.tsx
-  [id]/page.tsx
+  [id]/page.tsx              # + M3
 
 app/api/dev/exhibition/
   auth/route.ts
   auth/logout/route.ts
-  parse/route.ts             # M2
-  imports/route.ts           # M3 list + create
-  imports/[id]/route.ts      # M3 get
+  parse/route.ts
+  imports/route.ts           # + M3 list + create
+  imports/[id]/route.ts      # + M3 get
 
 app/lib/dev/exhibition/
-  auth.ts                    # cookie verify/sign for this portal (or thin wrapper over shared security)
+  auth.ts                    # this portal's cookie name, secret, lifetime
   schema.ts                  # ONE map JSON type + validation helpers
-  parseGlb.ts                # M2 — runs in the browser AND in the parse route
-  storage.ts                 # M3 Blob persistence only
+  parseGlb.ts                # runs in the browser AND in the parse route
+  parseGlb.test.ts           # `npm test`
+  __fixtures__/              # real-export-head.glb + why it is there
+  storage.ts                 # + M3 Blob persistence only
 
-proxy.ts                     # extend matcher; gate both portals without cross-feature imports
+app/lib/security/            # shared by both portals, imports no feature
+  token.ts                   # hmacHex, timingSafeEqual, cookieOptions, sign/verifyScopedToken
+  ratelimit.ts               # allowAttempt, clientKey
+
+proxy.ts                     # PORTALS table; add a row, not a branch
 ```
 
 `parseGlb.ts` must stay runtime-agnostic (no `fs`, no Node built-ins, `ArrayBuffer` in) so the same module serves the browser and the route handler. That is the whole reason it is one file and not two.
+
+**Tests:** `npm test` compiles the test file to CommonJS in `.test-build/` (gitignored) and runs `node --test`. CommonJS because Node's ESM resolver rejects the extensionless relative imports the rest of the project uses, and this keeps the source style untouched with no new dependency. Add M3 cases to the existing suite; do not add a test framework.
 
 Do not create a `database/` or `endpoints/` route tree.
 
@@ -208,7 +219,7 @@ Use the milestone named in the issue. Leave later milestones untouched.
 
 **Verified at `772bcbb`** — `tsc --noEmit` clean, `eslint` clean on M1 paths, `next build` passes. Against `next dev`: unauth hub/parser → 307 to the dev login; dev login reachable (200); unauth dev API → 401; wrong password → 401; correct → 200 + HttpOnly `dev_ex_view`; authed login → 307 to hub; forged cookie → 307 to login; logout → hub redirects again; **dev cookie on `/ticketcenter` → ticketcenter login and tc cookie on `/dev/exhibition` → dev login**; ticketcenter login and hub still 200; `/`, `/team`, `/exhibition/[slug]` untouched.
 
-### M2 — Parser (no persistence required) — ✅ done
+### M2 — Parser (no persistence required) — ✅ done (`26ada0d`)
 
 **Sequencing note, resolved differently than planned.** The designer has not adopted the naming contract, so no conformant export exists to freeze the schema against. Instead the schema was designed against the *real* node tree of the live asset, read via range request (see the constraints table). That gave the true Blender names, the transform style, the flat hierarchy and the accessor bounds — everything needed except confirmation that conformant names round-trip. **Still open:** re-validate against the first real conformant export and adjust `schema.ts` once if needed.
 
