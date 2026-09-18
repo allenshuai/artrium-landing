@@ -12,6 +12,7 @@
 
 # testing
 /coverage
+/docs/AGENT_DEV_EXHIBITION_CHECKLIST.md
 
 # next.js
 /.next/
