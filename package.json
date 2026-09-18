@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "tsc app/lib/dev/exhibition/parseGlb.test.ts --outDir .test-build --module commonjs --target es2022 --skipLibCheck --esModuleInterop --types node && node --test '.test-build/*.test.js'"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",

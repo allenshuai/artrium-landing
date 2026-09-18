@@ -88,14 +88,14 @@ third-party / Next
 |------|--------|
 | Repo | `artrium-landing` (Next.js 16) — correct home for this beta |
 | Hosting | Vercel (`www.artrium.space`); merging to `main` usually ships automatically once Git is linked |
-| Existing gate | Ticketcenter: `app/lib/ticketcenter/auth.ts`, `app/lib/ticketcenter/ratelimit.ts`, `proxy.ts` |
+| Gates | Shared: `app/lib/security/token.ts`, `app/lib/security/ratelimit.ts`. Per-portal: `app/lib/ticketcenter/auth.ts`, `app/lib/dev/exhibition/auth.ts`. Dispatch: `proxy.ts` |
 | Existing gallery | `app/exhibition/GalleryViewer.tsx`, `app/lib/gallery-config.ts` — visitor UX only |
 
 Existing primitives to prefer/reuse or extract (search before writing new):
 
-- `timingSafeEqual`, cookie HMAC pattern, `cookieOptions` — `app/lib/ticketcenter/auth.ts`
-- `allowAttempt`, `clientKey` — `app/lib/ticketcenter/ratelimit.ts`
-- Proxy gating — `proxy.ts`
+- `hmacHex`, `timingSafeEqual`, `cookieOptions`, `signScopedToken`, `verifyScopedToken` — `app/lib/security/token.ts`
+- `allowAttempt`, `clientKey` — `app/lib/security/ratelimit.ts`
+- Portal dispatch — the `PORTALS` table in `proxy.ts`
 - Client-side GLB loading (`GLTFLoader` + `DRACOLoader`, Draco decoder path) — `app/exhibition/GalleryViewer.tsx`, `app/lib/gallery-config.ts`
 
 ### Verified repo constraints — do not rediscover these
@@ -104,15 +104,19 @@ These were confirmed against the working tree. They are the reason several check
 
 | Constraint | Evidence | Consequence |
 |------------|----------|-------------|
-| `.env.example` is gitignored | `.gitignore:35` is `.env*`; `git check-ignore -v .env.example` → matches | Writing `.env.example` silently fails to commit. Needs a `!.env.example` negation. |
-| This doc is gitignored | `.gitignore:15` | A doc meant to be fed to agents/teammates is untracked. |
+| ~~`.env.example` is gitignored~~ | Fixed in M1 — `!.env.example` negation added | Resolved. |
+| ~~This doc is gitignored~~ | Fixed in M1 — ignore line removed | Resolved. |
 | Vercel filesystem is read-only | `content/updates` is read-only at request time (`app/lib/updates.ts:7`, files ship with the build) | A route that writes JSON under `content/` works in `next dev` and fails in production. |
 | Vercel Functions cap request bodies (~4.5 MB) | Platform limit | A real exhibition GLB will not fit through a multipart upload to a route handler. |
-| The exhibition GLB is Draco-compressed | `DRACO_DECODER_PATH` in `app/lib/gallery-config.ts` | Geometry-level extraction needs a Draco decode. Name/transform extraction does not. |
-| The GLB exporter strips dots from object names | `app/exhibition/artworks.ts:23-26` — `DesertHawk.001` exported as `DesertHawk001`, confirmed from a console log | `Artwork_12.001` exports as `Artwork_12001`, which parses as a **valid but wrong** id. See the naming contract. |
+| The live GLB is **not** Draco-compressed | `extensionsUsed` is `["KHR_materials_emissive_strength"]` only; `extensionsRequired` absent. The viewer configures `DRACOLoader` defensively, but this asset does not use it | No decoder needed to read geometry bounds today. Do not assume a decode is required; do not assume future exports won't add one. |
+| Dots survive in the GLB; **three.js** strips them, not the exporter | The JSON chunk of the live asset contains `DesertHawk.001`, `Area.001`, `Cylinder.001` verbatim. `artworks.ts:23-26` records `DesertHawk001` because that is what `GLTFLoader` produces after sanitising names for property paths | Good news: a parser reading the JSON chunk sees the **true Blender names**, so `.001` suffixes are detectable and can be rejected outright. Ids must also survive three.js sanitisation on the frontend, so they must contain no dots. |
 | Artwork content is already hand-maintained | `app/exhibition/artworks.ts` — title/artist/year/medium/dimensions/description keyed by mesh name | This is a second source of truth. M4 must resolve it. |
 | Spawn position is hardcoded | `app/exhibition/GalleryViewer.tsx:491` — `camera.position.set(0, 1.4, 5)` | Replacing this constant is the point of `Spawn_Main`. |
 | The viewer has no collision | No collision code in `GalleryViewer.tsx` | Users walk through walls, so a minimap can show them outside the floorplan. Separate frontend task — do not attach it to a backend milestone. |
+| The live exhibition GLB is **244.5 MB**, and its JSON chunk is **19.9 KiB** | `content-length: 244499180`; GLB header reports `chunk0 len=20376 type=JSON` | Empirical proof the ~4.5 MB body cap is unusable (54× over) — and that everything the importer needs is 0.008% of the file. |
+| `assets.artrium.space` supports range requests | `accept-ranges: bytes`; `curl -r 0-19` → `206` | Parse path (b) reads the header, then the JSON chunk, in two small range requests. It must never download the whole asset. |
+| Every POSITION accessor carries `min`/`max` | 18 of 18 in the live asset | `bounds` and `rooms[].bounds` are derivable from the JSON chunk with **no** geometry decode. `walls` remains the only geometry-dependent field. |
+| The real node tree is **flat** — no `children` anywhere | All 15 nodes of the live asset are top-level; transforms are TRS (`translation`/`rotation`/`scale`), never `matrix` | Ancestor-based `roomId` has no basis in how the designer currently works. It needs an explicit instruction to the designer, or a fallback. Expect `roomId: null` until then. |
 
 ---
 
@@ -180,44 +184,58 @@ Do not create a `database/` or `endpoints/` route tree.
 
 Use the milestone named in the issue. Leave later milestones untouched.
 
-### M1 — Auth + hub shell
+### M1 — Auth + hub shell — ✅ done (`772bcbb`)
 
-- [ ] **Search** for reusable auth/ratelimit helpers; extract shared security helpers only if copying would otherwise occur.
-- [ ] Add `!.env.example` negation to `.gitignore` (line 35's `.env*` currently swallows it — verify with `git check-ignore -v .env.example` before and after).
-- [ ] Create `.env.example` with `DEV_EXHIBITION_PASSWORD`, `DEV_EXHIBITION_COOKIE_SECRET`, **and** the existing undocumented keys: `TICKETCENTER_PASSWORD`, `TICKETCENTER_COOKIE_SECRET`, `TICKETCENTER_LEADS`, `ARTRIUM_API_BASE_URL`, `MAPBOX_TOKEN`, `NEXT_PUBLIC_GALLERY_MODEL_URL`, `NEXT_PUBLIC_GALLERY_ROUTE_SLUG`. Placeholder values only.
-- [ ] Remove `/docs/AGENT_DEV_EXHIBITION_CHECKLIST.md` from `.gitignore` (line 15) and track this doc.
-- [ ] Signed cookie auth for this portal (e.g. cookie `dev_ex_view`); edge-safe verify usable from `proxy.ts`.
-- [ ] `POST /api/dev/exhibition/auth` — timing-safe password check, rate limit, set cookie.
-- [ ] `POST /api/dev/exhibition/auth/logout` — clear cookie.
-- [ ] Extend `proxy.ts`. **Branch on path prefix before verifying any token**, then verify the matching portal's cookie:
-      - matcher adds `/dev/exhibition/:path*` and `/api/dev/exhibition/:path*`
-      - `/api/dev/exhibition/auth/*` passes through (does its own rate limiting)
-      - `/dev/exhibition/login` passes through when unauthenticated, redirects to `/dev/exhibition` when authenticated
-      - unauthenticated dev pages → `/dev/exhibition/login`, **not** `/ticketcenter/login`
-      - unauthenticated dev APIs → `401`
-      - Ticketcenter gate keeps working unchanged.
-      The current `proxy.ts` calls `verifyViewToken` unconditionally (line 12) and redirects to `/ticketcenter/login` (line 26). Adding to the matcher without prefix dispatch gates this portal on the ticketcenter cookie **and makes `/dev/exhibition/login` unreachable** — a redirect loop into the wrong portal.
-- [ ] If shared security helpers are extracted: note that `makeViewToken()` signs the constant string `"view"`, so the cookie is a static bearer token with no issued-at and no server-side expiry — it cannot be revoked without rotating the secret. Extraction is the cheap moment to put an issued-at in the signed payload. Do that, or state in the PR that both portals knowingly keep the static-token behaviour. Do not silently duplicate it.
-- [ ] Pages: `login`, hub with link to parser (can note “next” if parser isn’t in this issue), logout, `noindex` layout. **No** database/endpoints links.
-- [ ] Verify: wrong password fails; correct password unlocks hub; unauthenticated hub redirects to the **dev** login; authenticated `/dev/exhibition/login` redirects to the hub; ticketcenter still gated and still logs in.
+- [x] **Search** for reusable auth/ratelimit helpers; extract shared security helpers only if copying would otherwise occur.
+- [x] Add `!.env.example` negation to `.gitignore`.
+- [x] Create `.env.example` — enumerated from `grep -rho "process\.env\.[A-Z_0-9]*" app proxy.ts next.config.ts`, so it covers all 14 keys actually read, not a guessed subset.
+- [x] Remove this doc from `.gitignore` and track it.
+- [x] Signed cookie auth (`dev_ex_view`), edge-safe verify usable from `proxy.ts`.
+- [x] `POST /api/dev/exhibition/auth` — timing-safe check, rate limited, sets cookie.
+- [x] `POST /api/dev/exhibition/auth/logout` — clears cookie.
+- [x] `proxy.ts` prefix dispatch before token verification.
+- [x] Static-token weakness addressed for the new portal (see decisions below).
+- [x] Pages: `login`, hub, logout, `noindex` layout. No database/endpoints links.
+- [x] Verified — matrix below.
 
-### M2 — Parser (no persistence required)
+**Decisions this milestone settled (do not relitigate in M2+)**
 
-**Sequencing:** get one real re-export of the exhibition using the new object names *before* freezing `schema.ts`. Inspect the actual node tree from that file. A parser written against a contract nobody has exported yet gets written twice.
+- Shared primitives live in `app/lib/security/token.ts` (`hmacHex`, `timingSafeEqual`, `cookieOptions(maxAge)`, `signScopedToken`, `verifyScopedToken`) and `app/lib/security/ratelimit.ts`. Both portals consume them. Nothing under `app/lib/security/` may import from a feature.
+- **Ticket Center token payloads are unchanged on purpose.** `tc_view`/`tc_lead` still sign constant strings. Re-signing them with an issued-at would invalidate every live cookie and force the whole team to log in again. New portals use `signScopedToken`, which signs the issued-at so the cookie ages out server-side.
+- `verifyDevExToken` **fails closed** (returns `false`) when `DEV_EXHIBITION_COOKIE_SECRET` is unset, rather than throwing. It runs in `proxy.ts` on every request under the portal; a missing secret should lock the portal, not turn every page into a 500. The login route surfaces the misconfiguration.
+- `proxy.ts` is a `PORTALS` table. Adding a portal means adding a row, not adding a branch. `authApi` entries carry **no trailing slash** — the match is `pathname === authApi || pathname.startsWith(authApi + "/")`, and a trailing slash in the data silently gates that portal's own login endpoint.
+- Hub and login are client components. The hub reads its future recent-imports list from `GET /api/dev/exhibition/imports` (M3), not from a server component, so M3 adds a fetch rather than converting the page.
 
-- [ ] Search for existing GLB/three parse utilities before adding deps. `GLTFLoader`/`DRACOLoader` are already used client-side in `GalleryViewer.tsx` — reuse that path, do not add a second loader stack.
-- [ ] Define **one** map JSON schema module (`schema.ts`); UI, parse route, and (later) storage all use it.
-- [ ] Extraction runs on an `ArrayBuffer` and reads the glTF JSON chunk only — node names and TRS transforms are there, so **no Draco decode is needed** for names, transforms, bounds, spawns, or rooms.
-- [ ] `POST /api/dev/exhibition/parse` (auth required) accepts **either**:
-      - **a** a client-parsed map document (browser parsed the file it already has in memory), or
-      - **b** `{ url }` pointing at a GLB already on `assets.artrium.space`, which the route fetches server-side.
-      Both return the same `{ map, errors }` shape. **Neither streams the GLB as multipart through the function** — that hits Vercel's ~4.5 MB body cap on any real exhibition file. (a) is the path for a file the designer is holding; (b) is the path once the GLB is published to the CDN, and is the one that keeps working for re-imports without a re-upload.
-- [ ] The route **re-validates** any submitted map against `schema.ts` before returning it. With client-side parsing, server validation is the only gate — do not trust the posted document because the caller is authenticated.
-- [ ] Implement the naming contract exactly as specified below, including the duplicate-id hard error and the trailing-digit warning.
-- [ ] `/dev/exhibition/parser`: drag-drop → parse in-browser → preview JSON + errors + download; plus a URL field for path (b). Minimal UI.
-- [ ] Fixtures + a real check: add two small GLB fixtures under `app/lib/dev/exhibition/__fixtures__/` — one conformant, one deliberately broken (duplicate ids, a collapsed `.001` name, missing `Spawn_Main`) — and a `node --test` script asserting the `errors[]` output. `public/Box_with_SingularLightPoint.glb` (2.2 KB) shows a fixture this small is viable. A naming contract with no test regresses on the first re-export.
-- [ ] Hub link to parser is live.
-- [ ] Do **not** add storage/`[id]` unless the issue explicitly includes M3.
+**Verified at `772bcbb`** — `tsc --noEmit` clean, `eslint` clean on M1 paths, `next build` passes. Against `next dev`: unauth hub/parser → 307 to the dev login; dev login reachable (200); unauth dev API → 401; wrong password → 401; correct → 200 + HttpOnly `dev_ex_view`; authed login → 307 to hub; forged cookie → 307 to login; logout → hub redirects again; **dev cookie on `/ticketcenter` → ticketcenter login and tc cookie on `/dev/exhibition` → dev login**; ticketcenter login and hub still 200; `/`, `/team`, `/exhibition/[slug]` untouched.
+
+### M2 — Parser (no persistence required) — ✅ done
+
+**Sequencing note, resolved differently than planned.** The designer has not adopted the naming contract, so no conformant export exists to freeze the schema against. Instead the schema was designed against the *real* node tree of the live asset, read via range request (see the constraints table). That gave the true Blender names, the transform style, the flat hierarchy and the accessor bounds — everything needed except confirmation that conformant names round-trip. **Still open:** re-validate against the first real conformant export and adjust `schema.ts` once if needed.
+
+- [x] Searched for existing GLB/three utilities. `GLTFLoader` stays in the viewer; the importer reads the JSON chunk instead (justified in the `parseGlb.ts` header) — not a second loader stack, and it adds no dependency.
+- [x] One schema module, `schema.ts`. Parser, route, UI and (M3) storage share it.
+- [x] Extraction is JSON-chunk only, on an `ArrayBuffer`, no geometry decode.
+- [x] `POST /api/dev/exhibition/parse` accepts `{ map }` (client-parsed) or `{ url }` (published asset, read by range).
+- [x] Route re-validates every posted document through `validateMap`.
+- [x] Naming contract enforced: strict kebab ids, near-misses reported, duplicate ids a hard error, trailing-digit warning.
+- [x] `/dev/exhibition/parser` — drag-drop, URL field, issue list, JSON preview, download.
+- [x] Fixtures + `npm test` (15 tests).
+- [x] Hub link live.
+- [x] No storage or `[id]` added.
+
+**What M2 settled**
+
+- `parseGlb.ts` is **runtime-agnostic** — `ArrayBuffer` in, plain object out, no Node built-ins, no three.js, synchronous. That is what lets the browser and the route share one parser. Hashing stays with the callers because it is async and environment-specific. Keep it that way.
+- **Neither path ever moves the whole asset.** The browser reads `file.slice(0, 20 + jsonLength)`; the route issues two range requests. The live 244.5 MB asset parses end-to-end in ~0.4 s.
+- The route **refuses a non-206 response** on the header request. A host that ignores `Range` answers 200 and would otherwise stream 244.5 MB into the function.
+- The route has an **asset-host allowlist** (`assets.artrium.space` plus the host of `NEXT_PUBLIC_GALLERY_MODEL_URL`) and requires https. Without it, an authenticated internal user could make the server fetch arbitrary URLs.
+- `validateMap` **rejects unknown keys** at the top level, on `source`, and on every room/artwork/spawn. This is what makes the spatial/content boundary real: a smuggled `title` is an error, not a silently persisted field. M3 must not relax it.
+- Ids are lowercase kebab (`Artwork_desert-hawk`). Two reasons, both load-bearing: they survive three.js name sanitisation, and a collapsed `.00N` suffix yields an *invalid* id instead of a valid id for a different object.
+- `walls` is `never[]` in the type, so adding polylines later is a deliberate type change rather than an accident.
+
+**Verified** — `tsc --noEmit` clean, `eslint` clean on the new paths, `next build` passes, `npm test` 15/15. Against `next dev`: unauthenticated `POST /parse` → 401; `/dev/exhibition/parser` unauth → 307 to login; non-allowlisted host, http, and malformed URL → 422 with distinct messages; empty body → 400; the real 244.5 MB asset by URL → 200 in ~0.4 s reporting `spawn.missing-main` + `bounds.from-all-geometry` with world-transformed bounds; a valid document → no errors; tampered documents each caught (`map.walls`, `spawn.missing-main`, `map.parser-version`, `map.artworks.invalid`, `map.artworks.duplicate-id`, `map.bounds`, `map.artworks.unknown-field`).
+
+**Known gap for M4, worth raising with the designer now:** the live export has a completely flat node tree — 15 top-level nodes, no parenting. `roomId` is derived from the nearest `Room_*` ancestor, so until artworks are parented under room objects every artwork will come back with `roomId: null`. Either instruct the designer to parent them, or decide that AABB containment is the fallback. Do not add a second association mechanism without removing the first.
 
 ### M3 — Save import + `[id]` detail (+ hub list)
 

@@ -38,7 +38,7 @@ export default function DevExhibitionHub() {
               GLB parser
             </Link>
             <p className="mt-0.5 text-sm text-[#3F3A36]/60">
-              Upload an exhibition .glb and preview the extracted map JSON. Next milestone (M2) — not built yet.
+              Parse an exhibition .glb in the browser, or by CDN URL, and preview the extracted map JSON.
             </p>
           </li>
           <li className="px-4 py-3">
