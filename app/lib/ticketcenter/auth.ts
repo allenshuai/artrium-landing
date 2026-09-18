@@ -1,5 +1,8 @@
-// Edge-safe auth helpers for the Ticket Center. Uses Web Crypto only, so the
-// same code runs in proxy.ts and in Node route handlers. No Node imports here.
+// Edge-safe auth helpers for the Ticket Center. Signing primitives live in
+// app/lib/security/token.ts and are shared with the /dev/exhibition portal;
+// only the cookie names, secret and token payloads are specific to this portal.
+
+import { cookieOptions as baseCookieOptions, hmacHex, timingSafeEqual } from "@/app/lib/security/token";
 
 export const VIEW_COOKIE = "tc_view";
 export const LEAD_COOKIE = "tc_lead";
@@ -11,33 +14,10 @@ function getSecret(): string {
   return s;
 }
 
-async function hmacHex(secret: string, message: string): Promise<string> {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    enc.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(message));
-  return Array.from(new Uint8Array(sig))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
-/** Constant-time string comparison. */
-export function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const ab = enc.encode(a);
-  const bb = enc.encode(b);
-  let diff = ab.length === bb.length ? 0 : 1;
-  for (let i = 0; i < ab.length; i++) {
-    diff |= ab[i] ^ (i < bb.length ? bb[i] : 0);
-  }
-  return diff === 0;
-}
-
+// These two sign a constant string, so the value never ages out server-side and
+// can only be revoked by rotating the secret. Kept as-is deliberately: changing
+// the payload would invalidate every live tc_view/tc_lead cookie and force the
+// whole team to log in again. New portals use signScopedToken instead.
 export async function makeViewToken(): Promise<string> {
   return hmacHex(getSecret(), "view");
 }
@@ -84,11 +64,5 @@ export function parseLeads(): Map<string, string> {
 }
 
 export function cookieOptions() {
-  return {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-    path: "/",
-    maxAge: COOKIE_MAX_AGE,
-  };
+  return baseCookieOptions(COOKIE_MAX_AGE);
 }
