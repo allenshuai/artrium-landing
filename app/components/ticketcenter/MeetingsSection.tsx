@@ -11,6 +11,7 @@ import {
 import { MEETING_COLORS } from "./typeColors";
 import MeetingDrawer, { linkLabel } from "./MeetingDrawer";
 import MeetingForm from "./MeetingForm";
+import MeetingsModal from "./MeetingsModal";
 
 export default function MeetingsSection({
   initialMeetings,
@@ -24,6 +25,7 @@ export default function MeetingsSection({
   const [meetings, setMeetings] = useState<Meeting[]>(initialMeetings);
   const [openId, setOpenId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showModal, setShowModal] = useState(false);
   // Ticks each minute so a meeting drops off the row once it's over.
   const [now, setNow] = useState(() => new Date());
 
@@ -84,6 +86,15 @@ export default function MeetingsSection({
           <span className="border border-[#3F3A36]/15 bg-white px-1.5 py-0.5 font-mono text-[10px]">
             {upcoming.length}
           </span>
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            aria-label="View all meetings"
+            title="View all meetings, including past ones"
+            className="border border-[#3F3A36]/15 bg-white px-1 py-0.5 text-[10px] leading-none transition hover:border-[#3F3A36] hover:bg-[#3F3A36] hover:text-[#FFFAF6]"
+          >
+            ⛶
+          </button>
         </h2>
         {lead && (
           <button
@@ -97,7 +108,19 @@ export default function MeetingsSection({
 
       {upcoming.length === 0 ? (
         <p className="mt-2 border border-dashed border-[#3F3A36]/20 px-4 py-5 text-center text-xs text-[#3F3A36]/40">
-          No upcoming meetings. Past ones live in the Meetings tab of the sheet.
+          No upcoming meetings.
+          {meetings.length > 0 && (
+            <>
+              {" "}
+              <button
+                type="button"
+                onClick={() => setShowModal(true)}
+                className="underline underline-offset-2 hover:text-[#3F3A36]"
+              >
+                View past meetings
+              </button>
+            </>
+          )}
         </p>
       ) : (
         <div className="mt-2 flex snap-x gap-3 overflow-x-auto pb-3">
@@ -151,6 +174,19 @@ export default function MeetingsSection({
         </div>
       )}
 
+      {showModal && (
+        <MeetingsModal
+          meetings={meetings}
+          now={now}
+          lead={lead}
+          onClose={() => setShowModal(false)}
+          onOpen={(m) => setOpenId(m.id)}
+          onStatusChange={(m, status) => {
+            if (status !== m.status) save(m, { status });
+          }}
+          onNew={() => setShowForm(true)}
+        />
+      )}
       {open && (
         <MeetingDrawer meeting={open} lead={lead} onClose={() => setOpenId(null)} onSave={save} />
       )}
