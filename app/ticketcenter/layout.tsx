@@ -14,11 +14,17 @@ export default function TicketCenterLayout({
     <div
       className="min-h-screen bg-[#FFFAF6] text-[#3F3A36]"
       style={{
-        // Same grid-paper treatment as the homepage hero / map card.
+        // Same grid-paper treatment as the homepage hero / map card, but drawn
+        // as a fixed 48px tile. A single repeating gradient spanning the whole
+        // page re-rasterizes whenever the page height changes and its lines
+        // drift/stretch (visible when filters change the row count). A tiled
+        // background is independent of the element size, so it stays put.
         backgroundImage: `
-          repeating-linear-gradient(0deg,  transparent 0 47px, rgba(63,58,54,0.06) 47px 48px),
-          repeating-linear-gradient(90deg, transparent 0 47px, rgba(63,58,54,0.06) 47px 48px)
+          linear-gradient(to right,  rgba(63,58,54,0.06) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(63,58,54,0.06) 1px, transparent 1px)
         `,
+        backgroundSize: "48px 48px",
+        backgroundPosition: "-1px -1px",
       }}
     >
       {children}
