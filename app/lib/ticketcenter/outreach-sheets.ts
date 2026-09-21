@@ -12,6 +12,8 @@ import {
   type DirectoryFields,
   type DirectoryOrg,
   type OrgWriteResult,
+  type ContactGuide,
+  type GuideBlock,
 } from "./outreach";
 
 const DIRECTORY_RANGE = "Directory!A2:L";
@@ -272,4 +274,41 @@ export async function updateDashboardOrg(
   await appendLog(name, "dashboard:" + (changed.join(",") || "touch"), org.status, next.status, leadName);
   bust();
   return { directory, dashboard: { ...org, ...next, updated: now, updatedBy: leadName } };
+}
+
+// ── Contact Guide tab ──
+// Read-only reference text (who we are, what we offer, how to pitch). Edited in
+// Google Sheets, so the cache can be long. Rows are classified by the sheet's
+// own formatting: bold + large = section title, bold = subheading, else body.
+
+const GUIDE_TAB = "Contact Guide";
+const GUIDE_TTL_MS = 5 * 60_000;
+let guideCache: { guide: ContactGuide; at: number } | null = null;
+
+export async function getContactGuide(): Promise<ContactGuide> {
+  if (guideCache && Date.now() - guideCache.at < GUIDE_TTL_MS) return guideCache.guide;
+  const res = await getSheets().spreadsheets.get({
+    spreadsheetId: sheetId(),
+    ranges: [`${GUIDE_TAB}!A1:A300`],
+    includeGridData: true,
+    fields: "sheets(properties(sheetId),data(rowData(values(formattedValue,effectiveFormat(textFormat(bold,fontSize))))))",
+  });
+  const sheet = res.data.sheets?.[0];
+  const blocks: GuideBlock[] = [];
+  for (const row of sheet?.data?.[0]?.rowData ?? []) {
+    const cell = row.values?.[0];
+    const text = (cell?.formattedValue ?? "").trim();
+    if (!text) continue;
+    const tf = cell?.effectiveFormat?.textFormat;
+    const kind: GuideBlock["kind"] =
+      tf?.bold && (tf.fontSize ?? 10) >= 13 ? "section" : tf?.bold ? "heading" : "body";
+    blocks.push({ kind, text });
+  }
+  const gid = sheet?.properties?.sheetId ?? 0;
+  const guide: ContactGuide = {
+    blocks,
+    sheetUrl: `https://docs.google.com/spreadsheets/d/${sheetId()}/edit#gid=${gid}`,
+  };
+  guideCache = { guide, at: Date.now() };
+  return guide;
 }

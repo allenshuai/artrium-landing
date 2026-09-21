@@ -23,6 +23,7 @@ import TicketCenterHeader from "./TicketCenterHeader";
 import OrgCard from "./OrgCard";
 import OrgDrawer from "./OrgDrawer";
 import NewOrgForm from "./NewOrgForm";
+import ContactGuideDrawer from "./ContactGuideDrawer";
 import { Pill } from "./OrgPickers";
 
 type SortKey = "name" | "city" | "priority" | "status" | "owner";
@@ -73,6 +74,7 @@ export default function OutreachBoard({
   const [refreshing, setRefreshing] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [toast, setToast] = useState("");
   const [dragOverStatus, setDragOverStatus] = useState<OutreachStatus | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -401,6 +403,21 @@ export default function OutreachBoard({
             </div>
           </section>
 
+          {/* Contact guide link */}
+          <button
+            type="button"
+            onClick={() => setShowGuide(true)}
+            className="mt-2 flex w-full flex-wrap items-center justify-between gap-2 border border-[#3F3A36]/25 bg-[#FBF5AF] px-4 py-2.5 text-left text-sm transition hover:border-[#3F3A36] hover:shadow-[3px_3px_0_rgba(63,58,54,0.2)]"
+          >
+            <span>
+              <span className="font-medium">Reaching out?</span>{" "}
+              <span className="text-[#3F3A36]/80">
+                Check the contact template points for who we are, what we can offer and how to pitch each kind of org.
+              </span>
+            </span>
+            <span className="shrink-0 text-xs font-medium">Open contact guide →</span>
+          </button>
+
           {/* Directory tab */}
           <section className="mt-6">
             <div className="flex items-baseline gap-3">
@@ -587,6 +604,7 @@ export default function OutreachBoard({
           onPromote={promote}
         />
       )}
+      {showGuide && <ContactGuideDrawer onClose={() => setShowGuide(false)} />}
       {showNewForm && lead && (
         <NewOrgForm cities={cities} roster={roster} onClose={() => setShowNewForm(false)} onCreated={onCreated} />
       )}

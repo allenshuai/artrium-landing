@@ -282,3 +282,34 @@ export function formatOutreachDate(d: string): string {
 export function looksLikeUrl(s: string): boolean {
   return /^https?:\/\//i.test(s.trim());
 }
+
+// ── Contact Guide tab (read-only reference text) ──
+
+/** One row of the Contact Guide, classified by the sheet's own formatting. */
+export interface GuideBlock {
+  kind: "section" | "heading" | "body";
+  text: string;
+}
+
+export interface ContactGuide {
+  blocks: GuideBlock[];
+  sheetUrl: string; // deep link to the tab, for editing in Google Sheets
+}
+
+/** Splits body text into paragraphs and "- " bullet runs for rendering. */
+export function splitGuideBody(text: string): { kind: "p" | "ul"; lines: string[] }[] {
+  const out: { kind: "p" | "ul"; lines: string[] }[] = [];
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const bullet = line.match(/^[-•*]\s+(.*)$/);
+    if (bullet) {
+      const last = out[out.length - 1];
+      if (last && last.kind === "ul") last.lines.push(bullet[1]);
+      else out.push({ kind: "ul", lines: [bullet[1]] });
+    } else {
+      out.push({ kind: "p", lines: [line] });
+    }
+  }
+  return out;
+}
