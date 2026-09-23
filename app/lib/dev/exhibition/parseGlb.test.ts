@@ -8,7 +8,14 @@ const FIXTURES = join(process.cwd(), "app", "lib", "dev", "exhibition", "__fixtu
 import test from "node:test";
 
 import { glbJsonChunkRange, GlbFormatError, parseGlb } from "./parseGlb";
-import { PARSER_VERSION, validateMap } from "./schema";
+import {
+  PARSER_VERSION,
+  RESERVED_IDS,
+  isValidImportId,
+  newImportId,
+  summarize,
+  validateMap,
+} from "./schema";
 
 type TestNode = {
   name: string;
@@ -240,4 +247,64 @@ test("content smuggled into the map document is rejected", () => {
     validateMap({ ...map, assetSize: 123 }).map((i) => i.code),
     ["map.unknown-field"]
   );
+});
+
+test("the conformant export parses clean end to end", () => {
+  const file = readFileSync(join(FIXTURES, "conformant-export-head.glb"));
+  const bytes = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer;
+
+  const { map, errors } = parseGlb({
+    bytes,
+    filename: "gallery8_16-organized.glb",
+    totalBytes: 298_225_456,
+  });
+
+  // Specific checks first: asserting deepEqual(errors, []) narrows errors to
+  // never[], which would make these unreachable to the type checker.
+  assert.equal(
+    errors.some((e) => e.object?.startsWith("Scenery_")),
+    false,
+    "Scenery_* is outside the contract and must be ignored without complaint"
+  );
+  assert.equal(errors.some((e) => e.code === "bounds.from-all-geometry"), false);
+  assert.deepEqual(errors, [], "a conformant export must produce no issues at all");
+  assert.deepEqual(validateMap(map), []);
+
+  assert.deepEqual(map.rooms.map((r) => r.id).sort(), ["main-dome", "main-hall"]);
+  assert.deepEqual(map.spawns.map((s) => s.id), ["Main"]);
+  assert.deepEqual(
+    map.artworks.map((a) => a.id).sort(),
+    ["celestial-orb", "column-form", "lintel-east", "lintel-north", "lintel-west"]
+  );
+
+  // Artworks are parented under their room, so roomId resolves for every one.
+  assert.equal(map.artworks.every((a) => a.roomId !== null), true);
+  assert.equal(map.artworks.find((a) => a.id === "celestial-orb")?.roomId, "main-dome");
+
+  // Bounds come from the Room_* union rather than every mesh in the file.
+  assert.ok(map.bounds.max.y > map.bounds.min.y);
+});
+
+test("import ids are opaque and cannot shadow a static route", () => {
+  for (const reserved of RESERVED_IDS) assert.equal(isValidImportId(reserved), false);
+  assert.equal(isValidImportId("../escape"), false);
+  assert.equal(isValidImportId("UPPERCASE"), false);
+  assert.equal(isValidImportId("short"), false);
+
+  const id = newImportId();
+  assert.equal(isValidImportId(id), true);
+  assert.notEqual(id, newImportId());
+});
+
+test("summaries are derived from the document, never stored twice", () => {
+  const file = readFileSync(join(FIXTURES, "conformant-export-head.glb"));
+  const bytes = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer;
+  const { map, errors } = parseGlb({ bytes, filename: "gallery8_16-organized.glb" });
+
+  const summary = summarize({ id: "abcdef1234567890", savedAt: "2026-09-23T00:00:00.000Z", map, errors });
+  assert.equal(summary.rooms, map.rooms.length);
+  assert.equal(summary.artworks, map.artworks.length);
+  assert.equal(summary.filename, "gallery8_16-organized.glb");
+  assert.equal(summary.errorCount, 0);
+  assert.equal(summary.warningCount, 0);
 });

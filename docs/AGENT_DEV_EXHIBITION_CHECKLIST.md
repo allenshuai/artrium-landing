@@ -150,8 +150,7 @@ All `/dev/exhibition/*` and `/api/dev/exhibition/*` (except auth) require a vali
 
 ## Suggested file layout (keep lean)
 
-Built (M1 + M2) is unmarked; `+ M3` is what the next milestone adds and is the
-only thing that should appear.
+M1–M3 are built. Nothing else should appear in this tree.
 
 ```text
 app/dev/exhibition/
@@ -159,22 +158,24 @@ app/dev/exhibition/
   login/page.tsx
   page.tsx                   # hub
   parser/page.tsx
-  [id]/page.tsx              # + M3
+  [id]/page.tsx
 
 app/api/dev/exhibition/
   auth/route.ts
   auth/logout/route.ts
   parse/route.ts
-  imports/route.ts           # + M3 list + create
-  imports/[id]/route.ts      # + M3 get
+  imports/route.ts           # list + create
+  imports/[id]/route.ts      # get
 
 app/lib/dev/exhibition/
   auth.ts                    # this portal's cookie name, secret, lifetime
   schema.ts                  # ONE map JSON type + validation helpers
   parseGlb.ts                # runs in the browser AND in the parse route
   parseGlb.test.ts           # `npm test`
-  __fixtures__/              # real-export-head.glb + why it is there
-  storage.ts                 # + M3 Blob persistence only
+  __fixtures__/              # GLB heads only — see its README
+  storage.ts                 # Blob persistence (local dir fallback in dev)
+
+app/dev/exhibition/IssueList.tsx   # shared by the parser and [id] pages
 
 app/lib/security/            # shared by both portals, imports no feature
   token.ts                   # hmacHex, timingSafeEqual, cookieOptions, sign/verifyScopedToken
@@ -221,7 +222,7 @@ Use the milestone named in the issue. Leave later milestones untouched.
 
 ### M2 — Parser (no persistence required) — ✅ done (`26ada0d`)
 
-**Sequencing note, resolved differently than planned.** The designer has not adopted the naming contract, so no conformant export exists to freeze the schema against. Instead the schema was designed against the *real* node tree of the live asset, read via range request (see the constraints table). That gave the true Blender names, the transform style, the flat hierarchy and the accessor bounds — everything needed except confirmation that conformant names round-trip. **Still open:** re-validate against the first real conformant export and adjust `schema.ts` once if needed.
+**Sequencing note — now closed.** The schema was first designed against the live asset's real node tree (read via range request), then **validated against a genuinely conformant export**, `gallery8_16-organized.glb` (298.2 MB). It parses with zero issues: 2 rooms, 5 artworks, 1 spawn, every `roomId` resolved. `schema.ts` needed no change, so the contract is confirmed rather than assumed. Its 20,744-byte head is committed as `__fixtures__/conformant-export-head.glb`.
 
 - [x] Searched for existing GLB/three utilities. `GLTFLoader` stays in the viewer; the importer reads the JSON chunk instead (justified in the `parseGlb.ts` header) — not a second loader stack, and it adds no dependency.
 - [x] One schema module, `schema.ts`. Parser, route, UI and (M3) storage share it.
@@ -246,19 +247,33 @@ Use the milestone named in the issue. Leave later milestones untouched.
 
 **Verified** — `tsc --noEmit` clean, `eslint` clean on the new paths, `next build` passes, `npm test` 15/15. Against `next dev`: unauthenticated `POST /parse` → 401; `/dev/exhibition/parser` unauth → 307 to login; non-allowlisted host, http, and malformed URL → 422 with distinct messages; empty body → 400; the real 244.5 MB asset by URL → 200 in ~0.4 s reporting `spawn.missing-main` + `bounds.from-all-geometry` with world-transformed bounds; a valid document → no errors; tampered documents each caught (`map.walls`, `spawn.missing-main`, `map.parser-version`, `map.artworks.invalid`, `map.artworks.duplicate-id`, `map.bounds`, `map.artworks.unknown-field`).
 
-**Known gap for M4, worth raising with the designer now:** the live export has a completely flat node tree — 15 top-level nodes, no parenting. `roomId` is derived from the nearest `Room_*` ancestor, so until artworks are parented under room objects every artwork will come back with `roomId: null`. Either instruct the designer to parent them, or decide that AABB containment is the fallback. Do not add a second association mechanism without removing the first.
+**The flat-node-tree gap is resolved.** The conformant export parents artworks under their room (`Room_main-hall` → 4 artworks, `Room_main-dome` → 1), so ancestor-derived `roomId` works and needs no AABB-containment fallback. Keep it that way: do not add a second association mechanism. `Scenery_*` objects sit outside the contract and are ignored without complaint, which is the intended way to mark non-exhibition geometry.
 
-### M3 — Save import + `[id]` detail (+ hub list)
+### M3 — Save import + `[id]` detail (+ hub list) — ✅ done
 
-- [ ] Persist imports via **one** `storage.ts` using **Vercel Blob**. Do **not** write JSON files under `content/exhibitions/` — the Vercel filesystem is read-only apart from an ephemeral per-invocation `/tmp`, so that approach passes in `next dev` and fails in production. If the issue wants to defer Blob, mark M3 local-dev-only in the PR description and say so out loud; do not ship a silent prod failure. Not a new DB product either way.
-- [ ] `storage.ts` validates through `schema.ts` before writing. No second validation path.
-- [ ] Generate opaque ids, and reject `login` and `parser` as ids so a saved import can never shadow a static route.
-- [ ] `POST /api/dev/exhibition/imports` after a successful (or partial) parse → `{ id }`.
-- [ ] `GET /api/dev/exhibition/imports` → summaries for hub recent list.
-- [ ] `GET /api/dev/exhibition/imports/[id]` → full document.
-- [ ] `/dev/exhibition/[id]`: show one import using the **same** schema types.
-- [ ] Hub lists recent imports linking to `/dev/exhibition/[id]`.
-- [ ] Still **no** `/database` or `/endpoints` pages.
+- [x] One `storage.ts`, Vercel Blob in production. No JSON under `content/`.
+- [x] `storage.ts` validates through `schema.ts` before writing — one validation path.
+- [x] Opaque 16-hex ids; `login` and `parser` rejected so an import can never shadow a static route.
+- [x] `POST /api/dev/exhibition/imports` → `{ id }` (201).
+- [x] `GET /api/dev/exhibition/imports` → summaries for the hub.
+- [x] `GET /api/dev/exhibition/imports/[id]` → full document.
+- [x] `/dev/exhibition/[id]` renders one import from the same schema types.
+- [x] Hub lists recent imports, newest first, linking into `[id]`.
+- [x] No `/database` or `/endpoints`.
+
+**What M3 settled**
+
+- **`@vercel/blob` is a new dependency and `BLOB_READ_WRITE_TOKEN` a new env key** — both required before saving works on `artrium.space`. Add a Blob store to the Vercel project and set the token, or the portal returns 503 on every imports endpoint.
+- **Dev falls back to `.local-imports/`** (gitignored) when no token is set, so the portal is testable offline. **Production never falls back** — it throws, because a store that silently accepts writes going nowhere is the exact failure the M3 warning was about.
+- `StorageError` carries a `kind` (`"invalid" | "unavailable"`) and routes map it to **422 vs 503**. A misconfigured store is not the caller's fault and must not look like a rejected document.
+- Summaries are **derived** by `summarize()` from the stored document, never stored alongside it. There is no index blob to drift or corrupt; `listImports` reads each document, which is fine at this scale.
+- The stored document is `{ id, savedAt, map, errors }` — the import-time issues live with the map so `[id]` can explain a partial import without re-parsing a 300 MB asset.
+- `IssueList` is shared by the parser (client) and `[id]` (server) rather than duplicated. It is presentational with no hooks, which is what lets both render it.
+- Saving revalidates through `validateMap`, so unknown-key rejection applies at save time too: a smuggled `title` is a 422, not a stored field.
+
+**Verified** — `tsc --noEmit` clean, `eslint` clean on the portal paths, `next build` passes, `npm test` 18/18. Dev, with the local store: empty list → `{"imports":[]}`; saving the conformant parse → 201 with an opaque id; hub list → correct summary (`rooms=2 artworks=5 spawns=1 err=0 warn=0`); detail API → 200; `/dev/exhibition/<id>` → 200 rendering the id, room and artwork ids; two saves → distinct ids, list of 2. Unauthenticated: both API endpoints 401, the page 307 to login. Ids `login`, `parser`, `../../etc`, `UPPERCASE` and an unknown id → 404. Production build with no token: all three endpoints 503 with the token message, while a document missing `Spawn_Main` stays 422.
+
+**Caution when testing production locally:** `pkill -f "next start"` does not reliably kill the server. Confirm with `lsof -nP -iTCP:<port> -sTCP:LISTEN` before trusting a result — a stale process serving an old build produced a wrong reading during this milestone and sent the investigation down a false path.
 
 ### M4 — Visitor gallery wiring (only if issue asks)
 

@@ -43,3 +43,9 @@ next-env.d.ts
 
 # local test output
 /.test-build/
+
+# large local GLB samples (never committed; only their ~20KB heads are)
+/.local-assets/
+
+# local dev import store (Blob stands in for this on Vercel)
+/.local-imports/

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { GlbFormatError, glbJsonChunkRange, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
 import type { ExhibitionMap, ParseIssue } from "@/app/lib/dev/exhibition/schema";
+import IssueList from "../IssueList";
 
 // Only the head of the file is needed, so a multi-hundred-MB GLB never gets
 // read into memory in full — and never gets uploaded (Vercel caps request
@@ -26,33 +27,19 @@ type State = {
 
 const EMPTY: State = { map: null, issues: [], serverIssues: null, note: null, error: null, busy: false };
 
-function IssueList({ title, issues }: { title: string; issues: ParseIssue[] }) {
-  if (issues.length === 0) return null;
-  return (
-    <div className="mt-4">
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">{title}</h3>
-      <ul className="mt-2 space-y-1">
-        {issues.map((issue, i) => (
-          <li key={`${issue.code}-${i}`} className="border-l-2 pl-3 text-sm" style={{ borderColor: issue.level === "error" ? "#C0392B" : "#D98C1F" }}>
-            <span className="font-medium">{issue.level === "error" ? "Error" : "Warning"}</span>
-            <span className="text-[#3F3A36]/50"> · {issue.code}</span>
-            {issue.object && <span className="text-[#3F3A36]/50"> · {issue.object}</span>}
-            <p className="text-[#3F3A36]/75">{issue.message}</p>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 export default function ParserPage() {
   const [state, setState] = useState<State>(EMPTY);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [url, setUrl] = useState("");
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleFile = useCallback(async (file: File) => {
     setState({ ...EMPTY, busy: true });
+    setSaved(null);
+    setSaveError(null);
     try {
       const { map, errors, read } = await parseLocalFile(file);
       // Round-trip through the API so the server-side gate is exercised now,
@@ -86,6 +73,8 @@ export default function ParserPage() {
 
   const handleUrl = useCallback(async () => {
     setState({ ...EMPTY, busy: true });
+    setSaved(null);
+    setSaveError(null);
     try {
       const res = await fetch("/api/dev/exhibition/parse", {
         method: "POST",
@@ -109,6 +98,25 @@ export default function ParserPage() {
       setState({ ...EMPTY, error: "Request failed." });
     }
   }, [url]);
+
+  async function save() {
+    if (!state.map || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/dev/exhibition/imports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ map: state.map, errors: state.issues }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Save failed (${res.status}).`);
+      setSaved(data.id as string);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Save failed.");
+    }
+    setSaving(false);
+  }
 
   function download() {
     if (!state.map) return;
@@ -207,12 +215,31 @@ export default function ParserPage() {
             <p className="mt-4 text-sm text-[#3F3A36]/60">No issues — this export satisfies the naming contract.</p>
           )}
 
-          <div className="mt-6 flex items-center justify-between">
+          <div className="mt-6 flex items-center justify-between gap-4">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">Map JSON</h2>
-            <button onClick={download} className="text-sm underline underline-offset-4">
-              Download
-            </button>
+            <div className="flex items-center gap-4">
+              <button onClick={download} className="text-sm underline underline-offset-4">
+                Download
+              </button>
+              <button
+                onClick={() => void save()}
+                disabled={saving}
+                className="border border-[#3F3A36] bg-[#3F3A36] px-3 py-1.5 text-sm font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save import"}
+              </button>
+            </div>
           </div>
+
+          {saved && (
+            <p className="mt-2 text-sm">
+              Saved as{" "}
+              <Link href={`/dev/exhibition/${saved}`} className="font-mono underline underline-offset-4">
+                {saved}
+              </Link>
+            </p>
+          )}
+          {saveError && <p className="mt-2 border-l-2 border-[#C0392B] pl-3 text-sm text-[#C0392B]">{saveError}</p>}
           <pre className="mt-2 max-h-96 overflow-auto border border-[#3F3A36]/20 bg-white p-4 text-xs leading-relaxed">
             {JSON.stringify(state.map, null, 2)}
           </pre>
