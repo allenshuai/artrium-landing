@@ -280,7 +280,7 @@ Use the milestone named in the issue. Leave later milestones untouched.
 - [ ] Load saved map JSON into the existing visitor gallery path without forking a second viewer app.
 - [ ] Replace the hardcoded `camera.position.set(0, 1.4, 5)` (`GalleryViewer.tsx:491`) with `Spawn_Main` position + rotation from the map. This is the point of extracting spawns.
 - [ ] Resolve the `artworks.ts` duplication. The map document carries **spatial ids only**; `app/exhibition/artworks.ts` carries content (title/artist/year/medium/dimensions/description) keyed by mesh name. Leaving both means two hand-reconciled sources keyed by two naming schemes — exactly what the importer exists to prevent. Join content to spatial records by `Artwork_<id>`, and re-key `artworks.ts` to those ids in the same change.
-- [ ] Minimap: static map data + client pose only; live position stays frontend-local. Build it off `rooms[].bounds` boxes — `walls` polylines are a later milestone (see the contract below).
+- [ ] Minimap: designer PNG underlay + markers from saved map JSON; live player pose stays frontend-local (see **Minimap** under the contract below). Do not generate the primary floorplan from `rooms[].bounds` boxes.
 - [ ] Do **not** add collision detection here. The viewer has none today, which is why a player can stand outside the floorplan on the minimap. Real fix, separate frontend task, separate issue.
 
 ---
@@ -336,9 +336,36 @@ glTF position accessors carry `min`/`max` in the JSON chunk, so per-mesh AABBs a
 
 Derive `roomId` from the nearest ancestor `Room_*` node in the glTF hierarchy (i.e. the designer parents artworks under their room). `null` if there is no such ancestor. Do not add a second association mechanism later — if parenting turns out to be unreliable in practice, change this rule here.
 
+### Minimap — PNG underlay + map overlays
+
+The visitor minimap is **not** a procedural floorplan from `rooms[].bounds`. The designer supplies top-down orthographic renders; the client overlays spatial markers from the saved map.
+
+**Underlay**
+
+- Source assets live under `.local-assets/minimaps/` for local work (`Dark_MiniMap.png`, `White_MiniMap.png`, `Textured_MiniMap.png` — 2560×2560). Ship the chosen variant(s) via the same CDN/public path used for other exhibition media; do not leave the minimap dependent on `.local-assets` in production.
+- The PNG must be rendered from the **same top-down frame** as exhibition bounds (`ExhibitionBounds` mesh AABB, else the union of `Room_*`). If the image is cropped, rotated, or artistic relative to that frame, store an explicit calibration with the map (or re-export the PNG). Do not guess.
+
+**Overlays** (from map JSON + client)
+
+| Marker | Source |
+|--------|--------|
+| Artworks | `artworks[].position`; facing/yaw from `artworks[].rotation` |
+| Spawn | `spawns` entry with id `Main` |
+| Live player | camera / controller pose in the browser only — never persisted on the map document |
+| Room boxes (optional) | `rooms[].bounds` as debug / hitch outlines, not the primary floorplan |
+
+**World → image**
+
+Ignore `y`. Normalize world `(x, z)` against `map.bounds` (or the stored calibration), then map into image pixels. Account for image Y-down vs glTF Z when flipping the vertical axis. Wrong bounds alignment is a designer/export bug, not something to paper over in the viewer.
+
+**Out of scope for this minimap**
+
+- Collision / walk-mesh so the player cannot leave the floorplan — separate frontend issue.
+- Generating wall polylines from GLB geometry — see `walls` below.
+
 ### `walls` — deferred
 
-Floorplan polylines need real vertex data, which means a Draco decode in whatever runtime parses. Everything else in the contract is JSON-chunk-only. Ship the minimap off `rooms[].bounds` first; `walls` stays `[]` through M4. `Minimap` / `MinimapWall_*` objects are a later milestone.
+Floorplan polylines need real vertex data, which means a Draco decode in whatever runtime parses. Everything else in the contract is JSON-chunk-only. With the PNG underlay, `walls` stays `[]` through M4 — the image carries the floorplan silhouette. `Minimap` / `MinimapWall_*` objects remain a later milestone if vector outlines are ever needed on top of (or instead of) the PNG.
 
 ---
 
