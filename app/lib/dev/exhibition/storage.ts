@@ -3,15 +3,17 @@ import "server-only";
 import { list, put } from "@vercel/blob";
 import {
   hasBlockingError,
+  validateMap,
+  type ExhibitionMap,
+  type ParseIssue,
+} from "../../exhibition-map/schema";
+import {
   isValidImportId,
   newImportId,
   summarize,
-  validateMap,
-  type ExhibitionMap,
   type ImportSummary,
-  type ParseIssue,
   type StoredImport,
-} from "./schema";
+} from "./imports";
 
 // Vercel Blob is the production store. The repo filesystem is not an option:
 // it is read-only on Vercel apart from an ephemeral per-invocation /tmp, so

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { GALLERY_MODEL_URL } from "@/app/lib/gallery-config";
 import { glbJsonChunkRange, GlbFormatError, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
-import { validateMap, type ParseResult } from "@/app/lib/dev/exhibition/schema";
+import { validateMap, type ParseResult } from "@/app/lib/exhibition-map/schema";
 
 export const dynamic = "force-dynamic";
 

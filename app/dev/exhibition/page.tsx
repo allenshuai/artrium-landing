@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { GALLERY_ROUTE_SLUG } from "@/app/lib/gallery-config";
-import type { ImportSummary } from "@/app/lib/dev/exhibition/schema";
+import type { ImportSummary } from "@/app/lib/dev/exhibition/imports";
 
 export default function DevExhibitionHub() {
   const [busy, setBusy] = useState(false);

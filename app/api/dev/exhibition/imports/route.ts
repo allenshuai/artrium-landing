@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { isUnavailable, listImports, saveImport, StorageError } from "@/app/lib/dev/exhibition/storage";
-import type { ParseIssue } from "@/app/lib/dev/exhibition/schema";
+import type { ParseIssue } from "@/app/lib/exhibition-map/schema";
 
 export const dynamic = "force-dynamic";
 

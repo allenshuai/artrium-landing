@@ -29,7 +29,7 @@ import {
   type Room,
   type Spawn,
   type Vec3,
-} from "./schema";
+} from "../../exhibition-map/schema";
 
 const GLB_MAGIC = 0x46546c67; // "glTF"
 const JSON_CHUNK = 0x4e4f534a; // "JSON"

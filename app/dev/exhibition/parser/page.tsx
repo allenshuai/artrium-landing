@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { GlbFormatError, glbJsonChunkRange, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
-import type { ExhibitionMap, ParseIssue } from "@/app/lib/dev/exhibition/schema";
+import type { ExhibitionMap, ParseIssue } from "@/app/lib/exhibition-map/schema";
 import IssueList from "../IssueList";
 import MinimapPreview from "../MinimapPreview";
 

@@ -10,12 +10,14 @@ import test from "node:test";
 import { glbJsonChunkRange, GlbFormatError, parseGlb } from "./parseGlb";
 import {
   PARSER_VERSION,
+  validateMap,
+} from "../../exhibition-map/schema";
+import {
   RESERVED_IDS,
   isValidImportId,
   newImportId,
   summarize,
-  validateMap,
-} from "./schema";
+} from "./imports";
 
 type TestNode = {
   name: string;

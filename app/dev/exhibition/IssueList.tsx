@@ -1,4 +1,4 @@
-import type { ParseIssue } from "@/app/lib/dev/exhibition/schema";
+import type { ParseIssue } from "@/app/lib/exhibition-map/schema";
 
 // Presentational only, no hooks, so the client parser page and the server
 // detail page both render issues the same way.

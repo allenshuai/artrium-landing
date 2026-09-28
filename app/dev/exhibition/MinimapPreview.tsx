@@ -6,7 +6,7 @@ import {
   worldToImage,
   type ExhibitionMap,
   type Minimap,
-} from "@/app/lib/dev/exhibition/schema";
+} from "@/app/lib/exhibition-map/schema";
 
 // Proof-of-concept calibration surface. The image is chosen locally and never
 // uploaded — the whole point is to settle the world rectangle and the z

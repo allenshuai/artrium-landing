@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import IssueList from "../IssueList";
 import { getImport } from "@/app/lib/dev/exhibition/storage";
-import { summarize } from "@/app/lib/dev/exhibition/schema";
+import { summarize } from "@/app/lib/dev/exhibition/imports";
 
 export const dynamic = "force-dynamic";
 
