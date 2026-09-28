@@ -2,6 +2,8 @@
 
 Feed this file to an implementing agent. Complete only the scope of the assigned issue/milestone. Do not expand scope.
 
+Deferred multi-exhibition scaling and the minimap coordinate mapping live in `AGENT_MULTI_EXHIBITION_PLAN.md`. This file stays single-exhibition until that plan is picked up.
+
 ---
 
 ## Product design (canonical)
@@ -25,7 +27,7 @@ Three routes only. Do **not** build `/dev/exhibition/database` or `/dev/exhibiti
 **Explicitly out of scope unless the issue says otherwise**
 
 - `/dev/exhibition/database`, `/dev/exhibition/endpoints`
-- Real database product (Postgres/Dynamo/etc.) — use Blob (see M3)
+- Real database product (Postgres/Dynamo/etc.) — Blob for the dev portal (M3), a committed static file for the visitor path (M4)
 - Postman clone, minimap UI, CDN GLB upload pipeline, Expo/`artrium` app changes
 - Merging visitor `/exhibition/[slug]` into `/dev`
 
@@ -277,7 +279,13 @@ Use the milestone named in the issue. Leave later milestones untouched.
 
 ### M4 — Visitor gallery wiring (only if issue asks)
 
-- [ ] Load saved map JSON into the existing visitor gallery path without forking a second viewer app.
+**M4 depends on the publishing model below. Read it first.**
+
+- [ ] Publish the map as a **committed static file**, not a runtime read of the dev portal's store:
+      - parse the final GLB in `/dev/exhibition/parser`, use **Download**, commit the result to `content/exhibitions/<slug>.json`
+      - add one loader under `app/lib/exhibition/` that reads it server-side, the way `app/lib/updates.ts:7` already reads `content/updates/*.json`
+      - the visitor gallery reads that loader. It must not call `/api/dev/exhibition/*`, which is password-gated, and must not need `BLOB_READ_WRITE_TOKEN`.
+- [ ] Load that map into the existing visitor gallery path without forking a second viewer app.
 - [ ] Replace the hardcoded `camera.position.set(0, 1.4, 5)` (`GalleryViewer.tsx:491`) with `Spawn_Main` position + rotation from the map. This is the point of extracting spawns.
 - [ ] Resolve the `artworks.ts` duplication. The map document carries **spatial ids only**; `app/exhibition/artworks.ts` carries content (title/artist/year/medium/dimensions/description) keyed by mesh name. Leaving both means two hand-reconciled sources keyed by two naming schemes — exactly what the importer exists to prevent. Join content to spatial records by `Artwork_<id>`, and re-key `artworks.ts` to those ids in the same change.
 - [ ] Minimap: designer PNG underlay + markers from saved map JSON; live player pose stays frontend-local (see **Minimap** under the contract below). Do not generate the primary floorplan from `rooms[].bounds` boxes.
@@ -336,6 +344,34 @@ glTF position accessors carry `min`/`max` in the JSON chunk, so per-mesh AABBs a
 
 Derive `roomId` from the nearest ancestor `Room_*` node in the glTF hierarchy (i.e. the designer parents artworks under their room). `null` if there is no such ancestor. Do not add a second association mechanism later — if parenting turns out to be unreliable in practice, change this rule here.
 
+### Publishing model — two stores, one direction
+
+The dev portal and the visitor site do **not** share a store, and the arrow only
+points one way.
+
+| | Dev portal (`/dev/exhibition`) | Visitor site (`/exhibition/...`) |
+|---|---|---|
+| Store | Vercel Blob (M3) | `content/exhibitions/<slug>.json`, committed |
+| Access | password-gated | public |
+| Written by | `POST /api/dev/exhibition/imports` | a human, in a commit |
+| Read by | hub list, `[id]` detail | the gallery + minimap |
+
+Blob is the **workbench**: parse, validate, compare, keep history. The committed
+JSON is the **published artifact**. Promoting one to the other is a deliberate
+commit, which is the correct shape for a curated exhibition and gives the map the
+same review and rollback as code.
+
+Do not "simplify" this by pointing the visitor page at Blob. That would put a
+password-gated API and a Blob token on the public path, and would make one random
+import id load-bearing in production.
+
+**The `content/` rule, precisely:** never *write* there at runtime — the Vercel
+filesystem is read-only outside an ephemeral `/tmp`. *Reading* committed JSON is
+fine and already proven by `app/lib/updates.ts`.
+
+Minimap PNGs follow the GLB: publish to `assets.artrium.space`, not `public/`,
+which ships inside the deploy.
+
 ### Minimap — PNG underlay + map overlays
 
 The visitor minimap is **not** a procedural floorplan from `rooms[].bounds`. The designer supplies top-down orthographic renders; the client overlays spatial markers from the saved map.
@@ -356,7 +392,11 @@ The visitor minimap is **not** a procedural floorplan from `rooms[].bounds`. The
 
 **World → image**
 
-Ignore `y`. Normalize world `(x, z)` against `map.bounds` (or the stored calibration), then map into image pixels. Account for image Y-down vs glTF Z when flipping the vertical axis. Wrong bounds alignment is a designer/export bug, not something to paper over in the viewer.
+Ignore `y`. Map world `(x, z)` into image pixels using **the world rectangle the image actually covers**, then flip the vertical axis if needed.
+
+> **Do not normalize against `map.bounds`.** Measured against the real assets, that rule puts 3 of 5 artworks off the edge of the map: `bounds` is the `Room_*` union, and the lintels sit outside their room's box (`lintel-north` u=1.0035, `lintel-east` u=−0.0034, `lintel-west` v=−0.0037). The image rectangle and `bounds` are two different rectangles. Obtain the rectangle from an orthographic `Minimap_Camera` in the GLB, and until one exists, from the artist's ortho scale recorded against the import. See **Phase 0** and **The mechanism** in `AGENT_MULTI_EXHIBITION_PLAN.md`.
+
+Wrong alignment is a designer/export bug, not something to paper over in the viewer.
 
 **Out of scope for this minimap**
 

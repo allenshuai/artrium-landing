@@ -50,6 +50,8 @@ export type ExhibitionMap = {
   spawns: Spawn[];
   /** Floorplan polylines. Always empty until the walls milestone. */
   walls: never[];
+  /** Null until a Minimap_Camera or MinimapBounds exists, or one is calibrated. */
+  minimap: Minimap | null;
 };
 
 export type ParseIssue = {
@@ -89,6 +91,7 @@ const LOOSE: Record<Prefix, RegExp> = {
 };
 
 export const BOUNDS_OBJECT = "ExhibitionBounds";
+export const MINIMAP_CAMERA_OBJECT = "Minimap_Camera";
 
 /** A collapsed Blender duplicate suffix (".001" -> "001") hides here. */
 const SUSPECT_TRAILING_DIGITS = /\d{3,}$/;
@@ -110,7 +113,7 @@ export function suspectDuplicateSuffix(id: string): boolean {
 // Validation
 // ---------------------------------------------------------------------------
 
-const MAP_KEYS = ["id", "parserVersion", "createdAt", "source", "assetUrl", "bounds", "rooms", "artworks", "spawns", "walls"];
+const MAP_KEYS = ["id", "parserVersion", "createdAt", "source", "assetUrl", "bounds", "rooms", "artworks", "spawns", "walls", "minimap"];
 const SOURCE_KEYS = ["filename", "bytes", "hash", "url"];
 const ENTITY_KEYS: Record<"rooms" | "artworks" | "spawns", string[]> = {
   rooms: ["id", "bounds"],
@@ -214,6 +217,10 @@ export function validateMap(value: unknown): ParseIssue[] {
     }
   }
 
+  if (m.minimap !== undefined && m.minimap !== null) {
+    issues.push(...validateMinimap(m.minimap as Minimap));
+  }
+
   const spawns = Array.isArray(m.spawns) ? (m.spawns as Spawn[]) : [];
   if (!spawns.some((s) => s.id === REQUIRED_SPAWN_ID)) {
     err("spawn.missing-main", `No Spawn_${REQUIRED_SPAWN_ID} — the required spawn point.`);
@@ -234,6 +241,90 @@ export function duplicates(ids: string[]): string[] {
 
 export function hasBlockingError(issues: ParseIssue[]): boolean {
   return issues.some((i) => i.level === "error");
+}
+
+// ---------------------------------------------------------------------------
+// Minimap
+// ---------------------------------------------------------------------------
+
+/**
+ * The world rectangle a minimap image covers. This is NOT `bounds` — it is a
+ * property of the render camera, and conflating the two puts artworks off the
+ * edge of the map. Always recorded, never inferred from the image.
+ */
+export type MinimapRect = {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+};
+
+export type Minimap = {
+  rect: MinimapRect;
+  /** Whether increasing world z moves DOWN the image. Measured, not reasoned about. */
+  zAxis: "down" | "up";
+  /** How `rect` was obtained, so a provisional value is never mistaken for truth. */
+  source: "camera" | "minimap-bounds" | "manual";
+  /** Set when known; the PoC calibrates against a locally chosen file. */
+  pixelWidth: number | null;
+  pixelHeight: number | null;
+};
+
+/** Project a world point into normalized image space. Origin is the image top-left. */
+export function worldToImage(
+  minimap: Minimap,
+  x: number,
+  z: number
+): { u: number; v: number } {
+  const u = (x - minimap.rect.minX) / (minimap.rect.maxX - minimap.rect.minX);
+  const t = (z - minimap.rect.minZ) / (minimap.rect.maxZ - minimap.rect.minZ);
+  return { u, v: minimap.zAxis === "down" ? t : 1 - t };
+}
+
+export const MINIMAP_ASPECT_TOLERANCE = 0.005;
+
+/** Extent sanity: catches a scene authored in centimetres or millimetres. */
+const MIN_PLAUSIBLE_EXTENT = 2;
+const MAX_PLAUSIBLE_EXTENT = 2000;
+
+export function validateMinimap(m: Minimap): ParseIssue[] {
+  const issues: ParseIssue[] = [];
+  const w = m.rect.maxX - m.rect.minX;
+  const h = m.rect.maxZ - m.rect.minZ;
+
+  if (!(w > 0) || !(h > 0)) {
+    issues.push({
+      level: "error",
+      code: "minimap.degenerate-rect",
+      message: "Minimap rectangle must have positive width and depth.",
+    });
+    return issues;
+  }
+
+  if (m.pixelWidth && m.pixelHeight) {
+    const worldAspect = w / h;
+    const pixelAspect = m.pixelWidth / m.pixelHeight;
+    const drift = Math.abs(worldAspect - pixelAspect) / pixelAspect;
+    if (drift > MINIMAP_ASPECT_TOLERANCE) {
+      issues.push({
+        level: "error",
+        code: "minimap.aspect-mismatch",
+        message: `Image is ${m.pixelWidth}×${m.pixelHeight} (aspect ${pixelAspect.toFixed(4)}) but the world rectangle is ${w.toFixed(2)}×${h.toFixed(2)} (aspect ${worldAspect.toFixed(4)}). Markers would be stretched.`,
+      });
+    }
+  }
+
+  for (const [label, extent] of [["width", w], ["depth", h]] as const) {
+    if (extent < MIN_PLAUSIBLE_EXTENT || extent > MAX_PLAUSIBLE_EXTENT) {
+      issues.push({
+        level: "warning",
+        code: "minimap.implausible-scale",
+        message: `Minimap ${label} of ${extent.toFixed(2)} m is outside the plausible ${MIN_PLAUSIBLE_EXTENT}–${MAX_PLAUSIBLE_EXTENT} m range. Check the scene's units.`,
+      });
+    }
+  }
+
+  return issues;
 }
 
 // ---------------------------------------------------------------------------

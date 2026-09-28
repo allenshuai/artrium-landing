@@ -12,6 +12,7 @@
 
 import {
   BOUNDS_OBJECT,
+  MINIMAP_CAMERA_OBJECT,
   PARSER_VERSION,
   REQUIRED_SPAWN_ID,
   duplicates,
@@ -20,6 +21,7 @@ import {
   suspectDuplicateSuffix,
   type Artwork,
   type Bounds,
+  type Minimap,
   type ExhibitionMap,
   type ParseIssue,
   type ParseResult,
@@ -49,13 +51,20 @@ type GltfNode = {
   name?: string;
   children?: number[];
   mesh?: number;
+  camera?: number;
   matrix?: number[];
   translation?: number[];
   rotation?: number[];
   scale?: number[];
 };
 
+type GltfCamera = {
+  type?: string;
+  orthographic?: { xmag?: number; ymag?: number };
+};
+
 type Gltf = {
+  cameras?: GltfCamera[];
   nodes?: GltfNode[];
   meshes?: { name?: string; primitives?: { attributes?: Record<string, number> }[] }[];
   accessors?: { min?: number[]; max?: number[] }[];
@@ -246,6 +255,79 @@ function roomAncestor(parents: string[]): string | null {
 }
 
 
+/**
+ * The world rectangle an orthographic `Minimap_Camera` frames.
+ *
+ * glTF cameras look down their local -Z with +Y up, so a top-down minimap camera
+ * is rotated to point along world -Y. `xmag`/`ymag` are HALF-extents of the view
+ * volume per the glTF spec — note Blender's `ortho_scale` is the full width and
+ * the exporter halves it, which is a known source of exporter bugs. Verify once
+ * against a known distance rather than trusting the round trip.
+ */
+function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): Minimap | null {
+  const entry = flat.find((f) => f.name === MINIMAP_CAMERA_OBJECT);
+  if (!entry) return null;
+
+  if (entry.node.camera === undefined) {
+    errors.push({
+      level: "error",
+      code: "minimap.not-a-camera",
+      message: `${MINIMAP_CAMERA_OBJECT} exists but carries no camera. In Blender, tick Include → Cameras when exporting.`,
+      object: entry.name,
+    });
+    return null;
+  }
+
+  const camera = gltf.cameras?.[entry.node.camera];
+  const ortho = camera?.orthographic;
+  if (camera?.type !== "orthographic" || !ortho?.xmag || !ortho?.ymag) {
+    errors.push({
+      level: "error",
+      code: "minimap.not-orthographic",
+      message: `${MINIMAP_CAMERA_OBJECT} must be an orthographic camera with non-zero xmag/ymag. A perspective camera cannot define a flat map rectangle.`,
+      object: entry.name,
+    });
+    return null;
+  }
+
+  const m = entry.world;
+  const right = { x: m[0], y: m[1], z: m[2] };
+  const up = { x: m[4], y: m[5], z: m[6] };
+  const forward = { x: -m[8], y: -m[9], z: -m[10] };
+
+  // Straight down is forward ≈ (0,-1,0). Anything else means the render is not a
+  // plan view and a single axis-aligned rectangle cannot describe it.
+  if (forward.y > -0.99) {
+    errors.push({
+      level: "error",
+      code: "minimap.camera-not-top-down",
+      message: `${MINIMAP_CAMERA_OBJECT} does not point straight down (forward y=${forward.y.toFixed(3)}). Keep it axis-aligned with no roll.`,
+      object: entry.name,
+    });
+    return null;
+  }
+
+  const { xmag, ymag } = ortho;
+  const halfX = Math.abs(xmag * right.x) + Math.abs(ymag * up.x);
+  const halfZ = Math.abs(xmag * right.z) + Math.abs(ymag * up.z);
+  const centre = translationOf(m);
+
+  return {
+    rect: {
+      minX: centre.x - halfX,
+      maxX: centre.x + halfX,
+      minZ: centre.z - halfZ,
+      maxZ: centre.z + halfZ,
+    },
+    // Camera +Y is image-up. If that points along world -Z, then increasing world
+    // z moves down the image.
+    zAxis: up.z < 0 ? "down" : "up",
+    source: "camera",
+    pixelWidth: null,
+    pixelHeight: null,
+  };
+}
+
 export function parseGlb(input: ParseInput): ParseResult {
   const gltf = readGltf(input.bytes);
   const flat = flatten(gltf);
@@ -388,6 +470,8 @@ export function parseGlb(input: ParseInput): ParseResult {
     }
   }
 
+  const minimap = minimapFromCamera(gltf, flat, errors);
+
   const map: ExhibitionMap = {
     id: null,
     parserVersion: PARSER_VERSION,
@@ -404,6 +488,7 @@ export function parseGlb(input: ParseInput): ParseResult {
     artworks,
     spawns,
     walls: [],
+    minimap,
   };
 
   return { map, errors };

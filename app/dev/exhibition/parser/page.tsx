@@ -5,6 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import { GlbFormatError, glbJsonChunkRange, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
 import type { ExhibitionMap, ParseIssue } from "@/app/lib/dev/exhibition/schema";
 import IssueList from "../IssueList";
+import MinimapPreview from "../MinimapPreview";
 
 // Only the head of the file is needed, so a multi-hundred-MB GLB never gets
 // read into memory in full — and never gets uploaded (Vercel caps request
@@ -243,6 +244,8 @@ export default function ParserPage() {
           <pre className="mt-2 max-h-96 overflow-auto border border-[#3F3A36]/20 bg-white p-4 text-xs leading-relaxed">
             {JSON.stringify(state.map, null, 2)}
           </pre>
+
+          <MinimapPreview map={state.map} />
         </section>
       )}
     </main>

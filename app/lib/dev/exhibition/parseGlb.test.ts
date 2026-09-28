@@ -23,13 +23,19 @@ type TestNode = {
   rotation?: [number, number, number, number];
   children?: number[];
   mesh?: number;
+  camera?: number;
 };
 
+type TestCamera = { type?: string; orthographic?: { xmag?: number; ymag?: number } };
 
 /** Builds a header + JSON-chunk GLB. One unit cube mesh, shared by every node. */
-function glb(nodes: TestNode[], opts: { withMesh?: boolean } = {}): ArrayBuffer {
+function glb(
+  nodes: TestNode[],
+  opts: { withMesh?: boolean; camera?: TestCamera } = {}
+): ArrayBuffer {
   const withMesh = opts.withMesh !== false;
   const gltf = {
+    ...(opts.camera ? { cameras: [opts.camera] } : {}),
     asset: { version: "2.0" },
     scene: 0,
     scenes: [{ nodes: nodes.map((_, i) => i).filter((i) => !nodes.some((n) => n.children?.includes(i))) }],
@@ -38,6 +44,7 @@ function glb(nodes: TestNode[], opts: { withMesh?: boolean } = {}): ArrayBuffer 
       ...(n.translation ? { translation: n.translation } : {}),
       ...(n.rotation ? { rotation: n.rotation } : {}),
       ...(n.children ? { children: n.children } : {}),
+      ...(n.camera !== undefined ? { camera: n.camera } : {}),
       ...(withMesh && n.mesh !== undefined ? { mesh: n.mesh } : {}),
     })),
     meshes: [{ name: "cube", primitives: [{ attributes: { POSITION: 0 } }] }],
@@ -339,3 +346,56 @@ test("every artwork in the real export now normalises inside the map", () => {
   }
 });
 
+test("a Minimap_Camera defines the rectangle and the z direction", () => {
+  const { map, errors } = parseGlb({
+    bytes: glb(
+      [
+        { name: "Room_main", mesh: 0 },
+        { name: "Spawn_Main" },
+        // Rotated -90° about X: looks down world -Y, camera up along world -Z.
+        { name: "Minimap_Camera", translation: [2, 40, -3], rotation: [-0.7071068, 0, 0, 0.7071068], camera: 0 },
+      ],
+      { camera: { type: "orthographic", orthographic: { xmag: 50, ymag: 50 } } }
+    ),
+  });
+
+  assert.deepEqual(errors, []);
+  assert.ok(map.minimap, "expected a minimap block");
+  assert.equal(map.minimap.source, "camera");
+  // Half-extents are xmag/ymag about the camera's world position.
+  assert.equal(Math.round(map.minimap.rect.minX), -48);
+  assert.equal(Math.round(map.minimap.rect.maxX), 52);
+  assert.equal(Math.round(map.minimap.rect.minZ), -53);
+  assert.equal(Math.round(map.minimap.rect.maxZ), 47);
+  assert.equal(map.minimap.zAxis, "down");
+});
+
+test("a camera that is not orthographic or not top-down is rejected, not guessed", () => {
+  const perspective = parseGlb({
+    bytes: glb(
+      [{ name: "Room_main", mesh: 0 }, { name: "Spawn_Main" },
+       { name: "Minimap_Camera", rotation: [-0.7071068, 0, 0, 0.7071068], camera: 0 }],
+      { camera: { type: "perspective" } }
+    ),
+  });
+  assert.equal(perspective.map.minimap, null);
+  assert.ok(perspective.errors.some((e) => e.code === "minimap.not-orthographic"));
+
+  const sideways = parseGlb({
+    bytes: glb(
+      [{ name: "Room_main", mesh: 0 }, { name: "Spawn_Main" },
+       { name: "Minimap_Camera", camera: 0 }],
+      { camera: { type: "orthographic", orthographic: { xmag: 10, ymag: 10 } } }
+    ),
+  });
+  assert.equal(sideways.map.minimap, null);
+  assert.ok(sideways.errors.some((e) => e.code === "minimap.camera-not-top-down"));
+});
+
+test("no Minimap_Camera simply means no minimap, with no error", () => {
+  const { map, errors } = parseGlb({
+    bytes: glb([{ name: "Room_main", mesh: 0 }, { name: "Spawn_Main" }]),
+  });
+  assert.equal(map.minimap, null);
+  assert.equal(errors.filter((e) => e.code.startsWith("minimap.")).length, 0);
+});
