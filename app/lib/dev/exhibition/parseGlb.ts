@@ -245,6 +245,7 @@ function roomAncestor(parents: string[]): string | null {
   return null;
 }
 
+
 export function parseGlb(input: ParseInput): ParseResult {
   const gltf = readGltf(input.bytes);
   const flat = flatten(gltf);
@@ -350,19 +351,41 @@ export function parseGlb(input: ParseInput): ParseResult {
   }
 
   const roomsBounds = rooms.reduce<Bounds | null>((acc, r) => union(acc, r.bounds), null);
-  const bounds = boundsObject ?? roomsBounds ?? allGeometry;
+
+  // Rooms alone do not contain the artworks: wall-mounted pieces sit outside their
+  // room's box. Anything that frames or clamps on `bounds` would clip them, so the
+  // contract objects define the rectangle, not the rooms alone.
+  let contractBounds = roomsBounds;
+  for (const point of [...artworks.map((a) => a.position), ...spawns.map((sp) => sp.position)]) {
+    contractBounds = growToInclude(contractBounds, point);
+  }
+
+  const bounds = boundsObject ?? contractBounds ?? allGeometry;
   if (!bounds) {
     errors.push({
       level: "error",
       code: "bounds.unresolved",
       message: `Could not resolve exhibition bounds: no ${BOUNDS_OBJECT} mesh, no Room_* geometry, and no positioned geometry at all.`,
     });
-  } else if (!boundsObject && !roomsBounds) {
+  } else if (!boundsObject && !contractBounds) {
     errors.push({
       level: "warning",
       code: "bounds.from-all-geometry",
       message: `No ${BOUNDS_OBJECT} and no Room_* objects — bounds fall back to the AABB of every mesh in the file, which includes scenery.`,
     });
+  }
+
+  if (boundsObject && contractBounds) {
+    const outside =
+      contractBounds.min.x < boundsObject.min.x || contractBounds.max.x > boundsObject.max.x ||
+      contractBounds.min.z < boundsObject.min.z || contractBounds.max.z > boundsObject.max.z;
+    if (outside) {
+      errors.push({
+        level: "warning",
+        code: "bounds.excludes-contract-objects",
+        message: `${BOUNDS_OBJECT} does not contain every room, artwork and spawn. Anything clamping to these bounds will clip them.`,
+      });
+    }
   }
 
   const map: ExhibitionMap = {

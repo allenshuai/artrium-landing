@@ -25,6 +25,7 @@ type TestNode = {
   mesh?: number;
 };
 
+
 /** Builds a header + JSON-chunk GLB. One unit cube mesh, shared by every node. */
 function glb(nodes: TestNode[], opts: { withMesh?: boolean } = {}): ArrayBuffer {
   const withMesh = opts.withMesh !== false;
@@ -78,8 +79,12 @@ test("conformant export parses clean and validates", () => {
   assert.deepEqual(map.artworks[0].position, { x: 12.4, y: 3.2, z: -8.1 });
   assert.deepEqual(map.walls, []);
   assert.equal(map.id, null);
-  // Bounds come from the room's transformed cube, not from scenery.
-  assert.deepEqual(map.bounds, { min: { x: -1, y: -1, z: -1 }, max: { x: 1, y: 1, z: 1 } });
+  // Bounds contain every contract object, not just the rooms: the artwork at
+  // (12.4, 3.2, -8.1) and the spawn at (0, 1.4, 5) both stretch it.
+  assert.deepEqual(map.bounds, {
+    min: { x: -1, y: -1, z: -8.1 },
+    max: { x: 12.4, y: 3.2, z: 5 },
+  });
   assert.deepEqual(validateMap(map), []);
 });
 
@@ -133,7 +138,7 @@ test("missing Spawn_Main is a hard error", () => {
   assert.ok(errors.some((e) => e.code === "spawn.missing-main" && e.level === "error"));
 });
 
-test("ExhibitionBounds mesh overrides the room union", () => {
+test("an explicit ExhibitionBounds wins, but is flagged when it clips contract objects", () => {
   const { map, errors } = parseGlb({
     bytes: glb([
       { name: "Room_main", mesh: 0, translation: [0, 0, 0] },
@@ -141,8 +146,12 @@ test("ExhibitionBounds mesh overrides the room union", () => {
       { name: "Spawn_Main" },
     ]),
   });
-  assert.deepEqual(errors, []);
+  // The designer's explicit box is respected rather than silently widened...
   assert.deepEqual(map.bounds, { min: { x: 9, y: -1, z: -1 }, max: { x: 11, y: 1, z: 1 } });
+  // ...but the room and spawn at the origin sit outside it, which must be said.
+  const flagged = errors.find((e) => e.code === "bounds.excludes-contract-objects");
+  assert.ok(flagged, "expected a warning that the explicit bounds clips objects");
+  assert.equal(flagged.level, "warning");
 });
 
 test("an ExhibitionBounds empty warns and falls back to rooms", () => {
@@ -154,7 +163,8 @@ test("an ExhibitionBounds empty warns and falls back to rooms", () => {
     ]),
   });
   assert.ok(errors.some((e) => e.code === "bounds.not-a-mesh" && e.level === "warning"));
-  assert.deepEqual(map.bounds, { min: { x: 3, y: -1, z: -1 }, max: { x: 5, y: 1, z: 1 } });
+  // Room cube at x=4 (±1), widened to reach Spawn_Main at the origin.
+  assert.deepEqual(map.bounds, { min: { x: 0, y: -1, z: -1 }, max: { x: 5, y: 1, z: 1 } });
 });
 
 test("roomId comes from the nearest Room_* ancestor", () => {
@@ -308,3 +318,24 @@ test("summaries are derived from the document, never stored twice", () => {
   assert.equal(summary.errorCount, 0);
   assert.equal(summary.warningCount, 0);
 });
+
+test("every artwork in the real export now normalises inside the map", () => {
+  const file = readFileSync(join(FIXTURES, "conformant-export-head.glb"));
+  const bytes = file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer;
+  const { map } = parseGlb({ bytes });
+  const b = map.bounds;
+
+  // Before the containment fix, 3 of these 5 fell outside [0,1] — lintel-north at
+  // u=1.0035, lintel-east at u=-0.0034, lintel-west at v=-0.0037.
+  for (const a of map.artworks) {
+    const u = (a.position.x - b.min.x) / (b.max.x - b.min.x);
+    const v = (a.position.z - b.min.z) / (b.max.z - b.min.z);
+    assert.ok(u >= 0 && u <= 1, `artwork ${a.id} has u=${u}, outside the map`);
+    assert.ok(v >= 0 && v <= 1, `artwork ${a.id} has v=${v}, outside the map`);
+  }
+  for (const sp of map.spawns) {
+    const u = (sp.position.x - b.min.x) / (b.max.x - b.min.x);
+    assert.ok(u >= 0 && u <= 1, `spawn ${sp.id} has u=${u}, outside the map`);
+  }
+});
+
