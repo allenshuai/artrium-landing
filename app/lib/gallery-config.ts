@@ -12,16 +12,21 @@ export const DRACO_DECODER_PATH =
   "https://www.gstatic.com/draco/versioned/decoders/1.5.7/";
 
 /**
- * The GLB to load for an exhibition.
- *
- * Production always uses the map's own `assetUrl`: the published artifact is what
- * ships, and a stale environment variable must not be able to swap the model
- * underneath it. In development, NEXT_PUBLIC_GALLERY_MODEL_URL can stand in — an
- * exhibition GLB is hundreds of megabytes and is served from the gitignored
- * public/local/ rather than from the CDN.
+ * Production always serves the published URL: the committed map is what ships,
+ * and a stale environment variable must not be able to swap an asset underneath
+ * it. In development a local file can stand in — exhibition assets are hundreds
+ * of megabytes and are served from the gitignored public/local/, not the CDN.
  */
+function devOverride(published: string | null, override: string | undefined): string | null {
+  return (process.env.NODE_ENV === "production" ? undefined : override) || published;
+}
+
+/** The GLB to load for an exhibition. Dev override: NEXT_PUBLIC_GALLERY_MODEL_URL. */
 export function modelUrlFor(assetUrl: string | null): string | null {
-  const devOverride =
-    process.env.NODE_ENV === "production" ? undefined : process.env.NEXT_PUBLIC_GALLERY_MODEL_URL;
-  return devOverride || assetUrl;
+  return devOverride(assetUrl, process.env.NEXT_PUBLIC_GALLERY_MODEL_URL);
+}
+
+/** The minimap image to show. Dev override: NEXT_PUBLIC_GALLERY_MINIMAP_URL. */
+export function minimapUrlFor(imageUrl: string | null): string | null {
+  return devOverride(imageUrl, process.env.NEXT_PUBLIC_GALLERY_MINIMAP_URL);
 }

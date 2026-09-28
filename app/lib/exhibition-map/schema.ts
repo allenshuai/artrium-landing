@@ -266,15 +266,27 @@ export type MinimapRect = {
   maxZ: number;
 };
 
+/** Renders of the same top-down frame. One exhibition may publish several. */
+export const MINIMAP_VARIANTS = ["dark", "light", "textured"] as const;
+export type MinimapVariant = (typeof MINIMAP_VARIANTS)[number];
+
 export type Minimap = {
   rect: MinimapRect;
   /** Whether increasing world z moves DOWN the image. Measured, not reasoned about. */
   zAxis: "down" | "up";
   /** How `rect` was obtained, so a provisional value is never mistaken for truth. */
   source: "camera" | "minimap-bounds" | "manual";
-  /** Set when known; the PoC calibrates against a locally chosen file. */
+  /**
+   * Size of the rendered images. Every variant is the same render at the same
+   * size, so one rect and one pair of dimensions serve them all. Null until an
+   * image is attached — the GLB cannot know what was rendered from it.
+   */
   pixelWidth: number | null;
   pixelHeight: number | null;
+  /** Where each rendered image lives. Empty until published, like `assetUrl`. */
+  variants: Partial<Record<MinimapVariant, string>>;
+  /** The image this exhibition shows by default. Must name a key of `variants`. */
+  defaultVariant: MinimapVariant | null;
 };
 
 /** Project a world point into normalized image space. Origin is the image top-left. */
@@ -288,23 +300,82 @@ export function worldToImage(
   return { u, v: minimap.zAxis === "down" ? t : 1 - t };
 }
 
+/**
+ * World metres per source-image pixel. Derived once here so no caller recomputes
+ * it; the aspect check guarantees x and z agree, so one number describes both.
+ */
+export function metresPerPixel(minimap: Minimap): number | null {
+  return minimap.pixelWidth ? (minimap.rect.maxX - minimap.rect.minX) / minimap.pixelWidth : null;
+}
+
 export const MINIMAP_ASPECT_TOLERANCE = 0.005;
 
 /** Extent sanity: catches a scene authored in centimetres or millimetres. */
 const MIN_PLAUSIBLE_EXTENT = 2;
 const MAX_PLAUSIBLE_EXTENT = 2000;
 
-export function validateMinimap(m: Minimap): ParseIssue[] {
-  const issues: ParseIssue[] = [];
-  const w = m.rect.maxX - m.rect.minX;
-  const h = m.rect.maxZ - m.rect.minZ;
+const MINIMAP_KEYS = ["rect", "zAxis", "source", "pixelWidth", "pixelHeight", "variants", "defaultVariant"];
+const MINIMAP_SOURCES = ["camera", "minimap-bounds", "manual"];
 
+const isPositiveInt = (v: unknown) => typeof v === "number" && Number.isInteger(v) && v > 0;
+
+/**
+ * Validates a minimap block from any source, including a posted document, so it
+ * checks structure before it does arithmetic — reading `rect.maxX` off an
+ * unchecked object would throw rather than report.
+ */
+export function validateMinimap(value: unknown): ParseIssue[] {
+  const issues: ParseIssue[] = [];
+  const err = (code: string, message: string, object?: string) =>
+    issues.push({ level: "error", code, message, object });
+
+  if (typeof value !== "object" || value === null) {
+    err("minimap.not-object", "minimap must be an object or null.");
+    return issues;
+  }
+  const m = value as Partial<Minimap>;
+
+  for (const key of unknownKeys(m, MINIMAP_KEYS)) {
+    err("minimap.unknown-field", `Unexpected minimap field "${key}".`, key);
+  }
+
+  const r = m.rect;
+  if (!r || typeof r !== "object" || ![r.minX, r.maxX, r.minZ, r.maxZ].every(isNum)) {
+    err("minimap.rect", "minimap.rect must have finite minX, maxX, minZ and maxZ.");
+    return issues;
+  }
+  if (m.zAxis !== "down" && m.zAxis !== "up") err("minimap.z-axis", 'zAxis must be "down" or "up".');
+  if (!MINIMAP_SOURCES.includes(m.source as string)) {
+    err("minimap.source", `source must be one of ${MINIMAP_SOURCES.join(", ")}.`);
+  }
+
+  for (const key of ["pixelWidth", "pixelHeight"] as const) {
+    if (m[key] !== null && !isPositiveInt(m[key])) err(`minimap.${key}`, `${key} must be a positive integer or null.`);
+  }
+
+  const variants = m.variants;
+  if (!variants || typeof variants !== "object" || Array.isArray(variants)) {
+    err("minimap.variants", "variants must be an object mapping variant name to image URL.");
+    return issues;
+  }
+  for (const [name, url] of Object.entries(variants)) {
+    if (!(MINIMAP_VARIANTS as readonly string[]).includes(name)) {
+      err("minimap.unknown-variant", `Unknown minimap variant "${name}". Expected ${MINIMAP_VARIANTS.join(", ")}.`, name);
+    } else if (typeof url !== "string" || !url) {
+      err("minimap.variant-url", `Variant "${name}" needs an image URL.`, name);
+    }
+  }
+  if (m.defaultVariant !== null && !(m.defaultVariant && m.defaultVariant in variants)) {
+    err("minimap.default-variant", `defaultVariant "${String(m.defaultVariant)}" is not one of the published variants.`);
+  }
+  if (Object.keys(variants).length > 0 && !(m.pixelWidth && m.pixelHeight)) {
+    err("minimap.pixel-size", "Publishing an image needs its pixelWidth and pixelHeight, or the aspect cannot be checked.");
+  }
+
+  const w = r.maxX - r.minX;
+  const h = r.maxZ - r.minZ;
   if (!(w > 0) || !(h > 0)) {
-    issues.push({
-      level: "error",
-      code: "minimap.degenerate-rect",
-      message: "Minimap rectangle must have positive width and depth.",
-    });
+    err("minimap.degenerate-rect", "Minimap rectangle must have positive width and depth.");
     return issues;
   }
 
@@ -313,11 +384,10 @@ export function validateMinimap(m: Minimap): ParseIssue[] {
     const pixelAspect = m.pixelWidth / m.pixelHeight;
     const drift = Math.abs(worldAspect - pixelAspect) / pixelAspect;
     if (drift > MINIMAP_ASPECT_TOLERANCE) {
-      issues.push({
-        level: "error",
-        code: "minimap.aspect-mismatch",
-        message: `Image is ${m.pixelWidth}×${m.pixelHeight} (aspect ${pixelAspect.toFixed(4)}) but the world rectangle is ${w.toFixed(2)}×${h.toFixed(2)} (aspect ${worldAspect.toFixed(4)}). Markers would be stretched.`,
-      });
+      err(
+        "minimap.aspect-mismatch",
+        `Image is ${m.pixelWidth}×${m.pixelHeight} (aspect ${pixelAspect.toFixed(4)}) but the world rectangle is ${w.toFixed(2)}×${h.toFixed(2)} (aspect ${worldAspect.toFixed(4)}). Markers would be stretched.`
+      );
     }
   }
 

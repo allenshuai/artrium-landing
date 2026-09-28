@@ -1,7 +1,7 @@
 {
   "id": null,
   "parserVersion": 1,
-  "createdAt": "2026-09-28T00:53:35.592Z",
+  "createdAt": "2026-09-28T01:23:28.703Z",
   "source": {
     "filename": "Standardized-VGallery.glb",
     "bytes": 198171700,
@@ -245,7 +245,11 @@
     },
     "zAxis": "down",
     "source": "camera",
-    "pixelWidth": null,
-    "pixelHeight": null
+    "pixelWidth": 2560,
+    "pixelHeight": 2560,
+    "variants": {
+      "textured": "https://assets.artrium.space/Textured_MiniMap.png"
+    },
+    "defaultVariant": "textured"
   }
 }

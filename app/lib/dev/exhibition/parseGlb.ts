@@ -335,6 +335,10 @@ function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): 
     source: "camera",
     pixelWidth: null,
     pixelHeight: null,
+    // The GLB describes the frame, not the images rendered from it; those are
+    // attached when the map is published.
+    variants: {},
+    defaultVariant: null,
   };
 }
 

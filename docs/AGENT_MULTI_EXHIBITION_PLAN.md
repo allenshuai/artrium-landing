@@ -153,7 +153,7 @@ primary because it is the same object that produced the image.
 
 The minimap cannot ship correctly without all three.
 
-### L1 — Minimap rectangle from the camera
+### L1 — Minimap rectangle from the camera — ✅ done
 
 - [ ] Extract an orthographic `OrthographicTopCamera` from the GLB (`Minimap_Camera` still parses); fall back to a
       `MinimapBounds` mesh AABB; otherwise leave `minimap` null and say so in
@@ -167,7 +167,7 @@ The minimap cannot ship correctly without all three.
       scene authored in centimetres.
 - [ ] Confirm the vertical direction empirically once and store it as `zAxis`.
 
-### L2 — `bounds` must contain what the minimap plots
+### L2 — `bounds` must contain what the minimap plots — ✅ done
 
 - [ ] `bounds` currently unions `Room_*` only, so **3 of 5 artworks fall outside
       it** (`lintel-north` u=1.0035, `lintel-east` u=−0.0034, `lintel-west`
@@ -176,17 +176,20 @@ The minimap cannot ship correctly without all three.
 - [ ] Note this is independent of L1: even with a correct image rectangle, any
       consumer that clamps or frames on `bounds` will clip those artworks.
 
-### L3 — Publish the map as a committed static file
+### L3 — Publish the map as a committed static file — 🟡 built, assets not yet on the CDN
 
 The mechanism is specified in **Publishing model** in
 `AGENT_DEV_EXHIBITION_CHECKLIST.md`; it is M4 work. Summarised here because it is
 what makes S1/S2 safe to defer.
 
-- [ ] `content/exhibitions/<slug>.json`, committed, read server-side by one loader
+- [x] `content/exhibitions/<slug>.json`, committed, read server-side by one loader
       under `app/lib/exhibition/`.
-- [ ] The visitor path must not call `/api/dev/exhibition/*` (password-gated) and
+- [x] The visitor path must not call `/api/dev/exhibition/*` (password-gated) and
       must not need `BLOB_READ_WRITE_TOKEN`.
-- [ ] Minimap PNGs published to `assets.artrium.space`, not `public/`.
+- [ ] Minimap PNGs published to `assets.artrium.space`, not `public/`. **Pending**: the
+      published map already points at `Textured_MiniMap.png` there, alongside the GLB;
+      both need uploading to R2 before `main`. Development serves them from the
+      gitignored `public/local/` in the meantime.
 
 **Why this defers S1 and S2.** With the map committed as a file, no import id and
 no Blob layout appears in production. Storage can be re-keyed, exhibition identity
@@ -253,41 +256,58 @@ blob path, or a per-exhibition index) can wait until it actually hurts.
 
 ## Schema delta
 
+`exhibitionId` is still to come (S1). The `minimap` block is built, and is what
+`app/lib/exhibition-map/schema.ts` defines:
+
 ```ts
 // spatial only, as always — no content fields
-exhibitionId: string;
+exhibitionId: string;            // S1, not yet built
 
 minimap: {
-  variants: { dark: string; light: string; textured: string };
-  pixelWidth: number;
-  pixelHeight: number;
   /** World rectangle the image covers. From the camera, NOT from bounds. */
-  world: { minX: number; maxX: number; minZ: number; maxZ: number };
+  rect: { minX: number; maxX: number; minZ: number; maxZ: number };
   /** Whether increasing world z moves down the image. Measured, not inferred. */
   zAxis: "down" | "up";
-  /** How `world` was obtained, so a stopgap is never mistaken for ground truth. */
+  /** How `rect` was obtained, so a stopgap is never mistaken for ground truth. */
   source: "camera" | "minimap-bounds" | "manual";
+  /** One size for every variant: they are the same render. Null until published. */
+  pixelWidth: number | null;
+  pixelHeight: number | null;
+  /** The published images. Empty in parser output; attached at publish time. */
+  variants: Partial<Record<"dark" | "light" | "textured", string>>;
+  /** The image the exhibition shows. Must name a key of `variants`. */
+  defaultVariant: "dark" | "light" | "textured" | null;
 } | null;
 ```
 
-World → image:
+This was first sketched with `world` for `rect` and all three variants required.
+It shipped as above: `rect` because that name was already committed, and variants
+optional with a named default because an exhibition publishes what exists — the
+first one ships Textured only. `defaultVariant` also answers the open question
+about who chooses: the exhibition does.
+
+World → image, in `worldToImage`:
 
 ```ts
-const u = (x - world.minX) / (world.maxX - world.minX);
-const t = (z - world.minZ) / (world.maxZ - world.minZ);
+const u = (x - rect.minX) / (rect.maxX - rect.minX);
+const t = (z - rect.minZ) / (rect.maxZ - rect.minZ);
 const v = zAxis === "down" ? t : 1 - t;
-const px = u * pixelWidth, py = v * pixelHeight;
 ```
 
-Player-centred rotating minimap — the static half is above, the dynamic half is a
-transform on the image + marker layer with the player pinned at the viewport centre:
+Heading-up minimap, in `app/lib/exhibition/minimap.ts` — the player is pinned at
+the viewport centre and the map turns so their facing points up:
 
 ```
-transform: rotate(-yaw) translate(-px, -py)
+transform: translate(centre) rotate(θ) translate(-px, -py)
 ```
 
-Artwork icons counter-rotate by `+yaw` if they must stay upright. Live player pose
-stays frontend-local and is never written to the map document.
+**θ is not `-yaw`.** An earlier draft said so, and with three.js yaw (positive
+turns left) that turns the map the wrong way. `minimapFrame()` instead projects one
+step forward through `worldToImage` and turns by that angle, which is `+yaw` on a
+z-down map and handles z-up for free. A property test checks that the facing ends
+up pointing up across a sweep of headings on both kinds of map, and it fails on
+`-yaw`. Round markers need no counter-rotation; labels or facing ticks would.
+Live pose stays frontend-local and is never written to the map document.
 
 ---
 

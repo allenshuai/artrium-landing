@@ -31,6 +31,8 @@ function defaultMinimap(map: ExhibitionMap): Minimap {
     source: "manual",
     pixelWidth: null,
     pixelHeight: null,
+    variants: {},
+    defaultVariant: null,
   };
 }
 
@@ -48,7 +50,16 @@ type RoomBox = { id: string; u0: number; v0: number; u1: number; v1: number };
 
 const COLOURS = { artwork: "#C0392B", spawn: "#1F7A4D" } as const;
 
-export default function MinimapPreview({ map }: { map: ExhibitionMap }) {
+/** What a chosen image contributes to a published map: its file name and pixel size. */
+export type ChosenImage = { fileName: string; width: number; height: number };
+
+export default function MinimapPreview({
+  map,
+  onImage,
+}: {
+  map: ExhibitionMap;
+  onImage?: (image: ChosenImage) => void;
+}) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [pixels, setPixels] = useState<{ w: number; h: number } | null>(null);
   const [minimap, setMinimap] = useState<Minimap>(() => defaultMinimap(map));
@@ -116,7 +127,10 @@ export default function MinimapPreview({ map }: { map: ExhibitionMap }) {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
     const url = URL.createObjectURL(file);
     const probe = new Image();
-    probe.onload = () => setPixels({ w: probe.naturalWidth, h: probe.naturalHeight });
+    probe.onload = () => {
+      setPixels({ w: probe.naturalWidth, h: probe.naturalHeight });
+      onImage?.({ fileName: file.name, width: probe.naturalWidth, height: probe.naturalHeight });
+    };
     probe.src = url;
     setImageUrl(url);
   }

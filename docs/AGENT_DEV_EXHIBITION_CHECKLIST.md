@@ -175,6 +175,8 @@ app/lib/exhibition-map/      # shared by the dev portal and the visitor gallery;
 app/lib/exhibition/          # visitor side
   map.ts                     # getExhibition(id): reads content/exhibitions/<id>.json
   map.test.ts                # guards the published file itself
+  minimap.ts                 # heading-up frame maths — pure, so it is tested
+  minimap.test.ts
 
 content/exhibitions/         # published maps — committed, never written at runtime
 
@@ -187,6 +189,7 @@ app/lib/dev/exhibition/
   storage.ts                 # Blob persistence (local dir fallback in dev)
 
 app/dev/exhibition/IssueList.tsx   # shared by the parser and [id] pages
+app/exhibition/Minimap.tsx         # the visitor minimap; pose arrives via a ref each frame
 
 app/lib/security/            # shared by both portals, imports no feature
   token.ts                   # hmacHex, timingSafeEqual, cookieOptions, sign/verifyScopedToken
@@ -295,11 +298,17 @@ Use the milestone named in the issue. Leave later milestones untouched.
 - [x] The visitor route serves that map without forking a second viewer.
 - [x] `Spawn_Main` replaces the hardcoded `camera.position.set(0, 1.4, 5)`.
 - [x] The parser page gains an **Asset URL** field, so **Download** produces a publishable file. A file-parse cannot know where visitors will load the GLB from, and without it the downloaded map had `assetUrl: null`.
-- [ ] **Minimap in the visitor gallery**: PNG underlay + markers from the published map, live player pose frontend-local (see **Minimap** under the contract below). Next.
+- [x] **Minimap in the visitor gallery** — heading-up, player pinned at the centre, a fixed 15 m radius, the Textured render as underlay, artwork and spawn markers from the published map. Live pose is read inside the canvas each frame and written straight to a CSS transform; it never touches React state and never leaves the browser. Verified in real Chrome (below).
+- [x] The parser publishes the minimap image. Choosing a PNG in the calibration preview fills a **Minimap image URL** and **Variant**, and its pixel size comes from the image itself, so **Download** round-trips. Driving the page in Chrome reproduced the committed map exactly, apart from `createdAt`.
 - [ ] Resolve the `artworks.ts` duplication — **blocked on paintings.** `Standardized-VGallery.glb` contains **zero** `Artwork_*` objects; the architecture previously tagged that way is now `Scenery_*`. `artworks.ts` is still keyed to the old file's mesh names (`DesertHawk001`, `IMG_0738`, `IMG_1986`), so the viewer logs three "not found" warnings. Harmless, and it will stay that way until the designer adds the paintings. Join content by `Artwork_<id>` then, and re-key `artworks.ts` in the same change.
 - [ ] Do **not** add collision detection here. The viewer has none today, which is why a player can stand outside the floorplan on the minimap. Real fix, separate frontend task, separate issue.
 
-**Before merging to `main`:** upload `Standardized-VGallery.glb` to `https://assets.artrium.space/Standardized-VGallery.glb`. The published map points there, production ignores the dev override, and the file is not on the CDN yet — so production would load nothing until it is.
+**Before merging to `main`:** upload both assets to R2, at the exact names the published map uses:
+
+- `Standardized-VGallery.glb` → `https://assets.artrium.space/Standardized-VGallery.glb`
+- `Textured_MiniMap.png` → `https://assets.artrium.space/Textured_MiniMap.png`
+
+Production ignores both dev overrides, so until they are uploaded the gallery has nothing to load and the minimap has no image. The PNG is displayed through a plain `<img>`, which needs no CORS; only the GLB fetch does, and the Vercel preview origin is not on the bucket's CORS allowlist.
 
 **What M4 settled so far (do not relitigate)**
 
@@ -309,6 +318,11 @@ Use the milestone named in the issue. Leave later milestones untouched.
 - **Production always loads the published `assetUrl`.** `modelUrlFor()` honours `NEXT_PUBLIC_GALLERY_MODEL_URL` only outside production, so a stale value left in Vercel cannot swap the model under the published map. Verified at runtime, not just in the unit test: with the override set, `next start` served the CDN URL and `next dev` the local one.
 - **`Spawn_*` marks the eye point, not the floor**, and only its heading is applied — an Empty's full orientation would pitch or roll the view on entry. The designer placed `Spawn_Main` at `(0, 1.4, 5)`, identical to the old constant, so this file looks exactly as before; that is the wiring proven by construction.
 - **The published file is under test.** `app/lib/exhibition/map.test.ts` fails if it stops validating, loses `Spawn_Main`, loses its camera rectangle, or points `assetUrl` anywhere but the CDN. Both guards were checked by breaking the file on purpose.
+- **The minimap is heading-up, and its rotation is measured, not negated.** `minimapFrame()` projects one step forward through `worldToImage` and turns the map by that angle. On a z-down map this comes out to **+yaw** (three.js yaw: positive turns left). The plan's sketch said `rotate(-yaw)`; implemented literally it turns the map the wrong way, and the heading test fails on it — checked by swapping it in. Keep the projection: it is the one place the `zAxis` flip is handled.
+- **The minimap block carries its images.** `variants` maps `dark | light | textured` to URLs and `defaultVariant` names the one the gallery shows, which settles the plan's open question: the exhibition picks, not the client theme. Every variant shares one `rect` and one `pixelWidth`/`pixelHeight`, because they are the same render. Like `assetUrl`, these are attached at publish time and are empty in parser output. `metresPerPixel()` is derived once, in the shared schema, and the displayed image size comes from it.
+- **`validateMinimap` checks structure before arithmetic.** It used to read `rect.maxX` off whatever it was given, so a posted map with `"minimap": {}` threw and 500'd the parse route. It now reports, like the rest of `validateMap`, and rejects unknown minimap keys.
+- **Artwork facing is not drawn yet**, on purpose. The spec lists it, but which local axis is a painting's front depends on how the paintings are modelled, and the current file has none to measure against. Artworks draw as dots at their position; add a facing tick once a real painting shows which way it points.
+- **Headless Chrome cannot take pointer lock**, so mouse-look cannot be driven there. Rotation was verified end to end instead by turning the spawn 90° in the published map, which `Player` applies at mount: the minimap came up at `rotate(1.5708rad)`, and walking forward moved it west. The file was restored byte-identical afterwards.
 - **The parse route's SSRF allowlist is a constant**, `assets.artrium.space`. It used to add `GALLERY_MODEL_URL`'s host, which no longer exists now that each map carries its own asset.
 
 ---

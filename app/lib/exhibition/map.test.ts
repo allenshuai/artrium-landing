@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getExhibition } from "./map";
-import { modelUrlFor, GALLERY_EXHIBITION_ID } from "../gallery-config";
+import { minimapUrlFor, modelUrlFor, GALLERY_EXHIBITION_ID } from "../gallery-config";
 import { REQUIRED_SPAWN_ID, validateMap } from "../exhibition-map/schema";
 
 // The published map is what visitors get, so the file itself is under test: a
@@ -62,5 +62,35 @@ test("production always loads the published asset; the override is dev-only", ()
     env.NODE_ENV = saved.env;
     if (saved.url === undefined) delete env.NEXT_PUBLIC_GALLERY_MODEL_URL;
     else env.NEXT_PUBLIC_GALLERY_MODEL_URL = saved.url;
+  }
+});
+
+test("the published minimap image is attached, sized, and on the CDN", () => {
+  const minimap = getExhibition(GALLERY_EXHIBITION_ID)?.minimap;
+  assert.ok(minimap?.defaultVariant, "the gallery needs a default minimap image");
+  const url = minimap.variants[minimap.defaultVariant];
+  assert.ok(url?.startsWith("https://assets.artrium.space/"), `got ${url}`);
+  // Every variant, not just the default: any of them may be shown.
+  for (const [name, variantUrl] of Object.entries(minimap.variants)) {
+    assert.ok(variantUrl?.startsWith("https://assets.artrium.space/"), `${name} points at ${variantUrl}`);
+  }
+  // Without pixel dimensions the aspect check could not run against the camera.
+  assert.equal(minimap.pixelWidth, 2560);
+  assert.equal(minimap.pixelHeight, 2560);
+});
+
+test("the minimap image override is dev-only too", () => {
+  const saved = { env: process.env.NODE_ENV, url: process.env.NEXT_PUBLIC_GALLERY_MINIMAP_URL };
+  const env = process.env as Record<string, string | undefined>;
+  try {
+    env.NEXT_PUBLIC_GALLERY_MINIMAP_URL = "/local/Textured_MiniMap.png";
+    env.NODE_ENV = "development";
+    assert.equal(minimapUrlFor("https://assets.artrium.space/t.png"), "/local/Textured_MiniMap.png");
+    env.NODE_ENV = "production";
+    assert.equal(minimapUrlFor("https://assets.artrium.space/t.png"), "https://assets.artrium.space/t.png");
+  } finally {
+    env.NODE_ENV = saved.env;
+    if (saved.url === undefined) delete env.NEXT_PUBLIC_GALLERY_MINIMAP_URL;
+    else env.NEXT_PUBLIC_GALLERY_MINIMAP_URL = saved.url;
   }
 });

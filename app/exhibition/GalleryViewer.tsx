@@ -11,7 +11,9 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
 import { DRACO_DECODER_PATH } from '../lib/gallery-config'
-import type { Spawn } from '../lib/exhibition-map/schema'
+import type { ExhibitionMap, Spawn } from '../lib/exhibition-map/schema'
+import type { Pose } from '../lib/exhibition/minimap'
+import Minimap, { type PoseSink } from './Minimap'
 import { ARTWORKS, ARTWORK_NAMES, getArtworkConfig, type ArtworkConfig } from './artworks'
 
 const ARCH_PATH = "M95.7731 0C42.8754 0 0 42.8827 0 95.7731V191.546H191.546V95.7731C191.546 42.8827 148.671 0 95.7731 0Z"
@@ -542,7 +544,36 @@ function Player({ paused, spawn }: { paused: boolean; spawn: Spawn }) {
   return null
 }
 
-export default function GalleryViewer({ modelUrl, spawn }: { modelUrl: string; spawn: Spawn }) {
+// Reads the camera each frame and hands the pose to the minimap. Lives inside the
+// canvas because that is where the camera is; the minimap is ordinary HTML.
+function PoseReporter({ poseSinkRef }: { poseSinkRef: PoseSink }) {
+  const { camera } = useThree()
+  const euler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'))
+
+  useFrame(() => {
+    const sink = poseSinkRef.current
+    if (!sink) return
+    // YXZ matches PointerLockControls, so .y is the heading and pitch is ignored.
+    euler.current.setFromQuaternion(camera.quaternion, 'YXZ')
+    const pose: Pose = { x: camera.position.x, z: camera.position.z, yaw: euler.current.y }
+    sink(pose)
+  })
+
+  return null
+}
+
+export default function GalleryViewer({
+  modelUrl,
+  spawn,
+  map,
+  minimapImageUrl,
+}: {
+  modelUrl: string
+  spawn: Spawn
+  map: ExhibitionMap
+  minimapImageUrl: string | null
+}) {
+  const poseSinkRef = useRef<((pose: Pose) => void) | null>(null)
   const [locked, setLocked] = useState(false)
   const [progress, setProgress] = useState(0)
   const [loaded, setLoaded] = useState(false)
@@ -620,6 +651,7 @@ export default function GalleryViewer({ modelUrl, spawn }: { modelUrl: string; s
           onSceneReady={handleSceneReady}
         />
         <Player paused={overlayOpen} spawn={spawn} />
+        <PoseReporter poseSinkRef={poseSinkRef} />
         {gltfScene && (
           <ArtworkInteractions
             scene={gltfScene}
@@ -634,6 +666,16 @@ export default function GalleryViewer({ modelUrl, spawn }: { modelUrl: string; s
           onUnlock={() => setLocked(false)}
         />
       </Canvas>
+
+      {loaded && !error && map.minimap && minimapImageUrl && (
+        <Minimap
+          minimap={map.minimap}
+          imageUrl={minimapImageUrl}
+          artworks={map.artworks}
+          spawns={map.spawns}
+          poseSinkRef={poseSinkRef}
+        />
+      )}
 
       {loaded && locked && !overlayOpen && <ArchCrosshair active={hoveredArtwork !== null} />}
 

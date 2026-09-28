@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import GalleryViewer from "../GalleryViewer";
-import { GALLERY_EXHIBITION_ID, GALLERY_ROUTE_SLUG, modelUrlFor } from "../../lib/gallery-config";
+import { GALLERY_EXHIBITION_ID, GALLERY_ROUTE_SLUG, minimapUrlFor, modelUrlFor } from "../../lib/gallery-config";
 import { getExhibition } from "../../lib/exhibition/map";
 import { REQUIRED_SPAWN_ID } from "../../lib/exhibition-map/schema";
 
@@ -40,5 +40,11 @@ export default async function GalleryPage({
     throw new Error(`Exhibition "${GALLERY_EXHIBITION_ID}" has no Spawn_${REQUIRED_SPAWN_ID}.`);
   }
 
-  return <GalleryViewer modelUrl={modelUrl} spawn={spawn} />;
+  // No minimap is a valid exhibition, not an error: the gallery simply runs without one.
+  const minimap = map.minimap;
+  const minimapImageUrl = minimap?.defaultVariant
+    ? minimapUrlFor(minimap.variants[minimap.defaultVariant] ?? null)
+    : null;
+
+  return <GalleryViewer modelUrl={modelUrl} spawn={spawn} map={map} minimapImageUrl={minimapImageUrl} />;
 }

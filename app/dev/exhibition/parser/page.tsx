@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { GlbFormatError, glbJsonChunkRange, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
-import type { ExhibitionMap, ParseIssue } from "@/app/lib/exhibition-map/schema";
+import type { ExhibitionMap, MinimapVariant, ParseIssue } from "@/app/lib/exhibition-map/schema";
 import IssueList from "../IssueList";
-import MinimapPreview from "../MinimapPreview";
+import MinimapPreview, { type ChosenImage } from "../MinimapPreview";
 
 // Only the head of the file is needed, so a multi-hundred-MB GLB never gets
 // read into memory in full — and never gets uploaded (Vercel caps request
@@ -32,6 +32,9 @@ export default function ParserPage() {
   const [state, setState] = useState<State>(EMPTY);
   const [saved, setSaved] = useState<string | null>(null);
   const [assetUrl, setAssetUrl] = useState("");
+  const [minimapImage, setMinimapImage] = useState<
+    (ChosenImage & { url: string; variant: MinimapVariant }) | null
+  >(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [url, setUrl] = useState("");
@@ -42,6 +45,7 @@ export default function ParserPage() {
     setState({ ...EMPTY, busy: true });
     setSaved(null);
     setSaveError(null);
+    setMinimapImage(null);
     try {
       const { map, errors, read } = await parseLocalFile(file);
       // Round-trip through the API so the server-side gate is exercised now,
@@ -78,6 +82,7 @@ export default function ParserPage() {
     setState({ ...EMPTY, busy: true });
     setSaved(null);
     setSaveError(null);
+    setMinimapImage(null);
     try {
       const res = await fetch("/api/dev/exhibition/parse", {
         method: "POST",
@@ -106,9 +111,32 @@ export default function ParserPage() {
   // What Download and Save emit: the parse, plus where visitors will load the GLB
   // from. A file-parse cannot know that on its own, and a map without it cannot
   // be published to content/exhibitions/.
+  // The minimap image is attached the same way: the GLB describes the frame, and
+  // the image rendered from it is added here, with its pixel size, so the aspect
+  // check can run against the camera's rectangle.
+  const imageUrl = minimapImage?.url.trim();
   const published: ExhibitionMap | null = state.map
-    ? { ...state.map, assetUrl: assetUrl.trim() || null }
+    ? {
+        ...state.map,
+        assetUrl: assetUrl.trim() || null,
+        minimap:
+          state.map.minimap && minimapImage && imageUrl
+            ? {
+                ...state.map.minimap,
+                pixelWidth: minimapImage.width,
+                pixelHeight: minimapImage.height,
+                variants: { ...state.map.minimap.variants, [minimapImage.variant]: imageUrl },
+                defaultVariant: minimapImage.variant,
+              }
+            : state.map.minimap,
+      }
     : null;
+
+  function chooseImage(image: ChosenImage) {
+    const name = image.fileName.toLowerCase();
+    const variant: MinimapVariant = name.includes("dark") ? "dark" : name.includes("white") || name.includes("light") ? "light" : "textured";
+    setMinimapImage({ ...image, variant, url: `https://assets.artrium.space/${image.fileName}` });
+  }
   const assetUrlHint = !assetUrl.trim()
     ? "Required before publishing — the visitor gallery has nothing to load without it."
     : !assetUrl.trim().startsWith("https://assets.artrium.space/")
@@ -273,7 +301,40 @@ export default function ParserPage() {
             {JSON.stringify(published, null, 2)}
           </pre>
 
-          <MinimapPreview map={state.map} />
+          {state.map.minimap && minimapImage && (
+            <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]">
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">
+                  Minimap image URL ({minimapImage.width}×{minimapImage.height})
+                </span>
+                <input
+                  value={minimapImage.url}
+                  onChange={(e) => setMinimapImage({ ...minimapImage, url: e.target.value })}
+                  className="mt-1 w-full border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">Variant</span>
+                <select
+                  value={minimapImage.variant}
+                  onChange={(e) => setMinimapImage({ ...minimapImage, variant: e.target.value as MinimapVariant })}
+                  className="mt-1 border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
+                >
+                  <option value="textured">textured</option>
+                  <option value="dark">dark</option>
+                  <option value="light">light</option>
+                </select>
+              </label>
+              {!minimapImage.url.trim().startsWith("https://assets.artrium.space/") && (
+                <span className="text-sm text-[#D98C1F] sm:col-span-2">
+                  Visitors load the minimap from assets.artrium.space. A local path only works in development, via
+                  NEXT_PUBLIC_GALLERY_MINIMAP_URL.
+                </span>
+              )}
+            </div>
+          )}
+
+          <MinimapPreview map={state.map} onImage={chooseImage} />
         </section>
       )}
     </main>

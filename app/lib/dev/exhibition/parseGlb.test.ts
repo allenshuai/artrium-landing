@@ -434,3 +434,34 @@ test("no Minimap_Camera simply means no minimap, with no error", () => {
   assert.equal(map.minimap, null);
   assert.equal(errors.filter((e) => e.code.startsWith("minimap.")).length, 0);
 });
+
+test("a malformed minimap block is reported, not thrown", () => {
+  const { map } = parseGlb({ bytes: glb([{ name: "Room_main", mesh: 0 }, { name: "Spawn_Main" }]) });
+  // Before validateMinimap checked structure first, this read rect.maxX off an
+  // empty object and threw — a 500 from the parse route on a posted document.
+  for (const minimap of [{}, { rect: null }, { rect: { minX: 0 } }, "nope", 42]) {
+    const codes = validateMap({ ...map, minimap }).map((i) => i.code);
+    assert.ok(codes.some((c) => c.startsWith("minimap.")), `minimap ${JSON.stringify(minimap)} gave ${codes}`);
+  }
+});
+
+test("a published minimap must name a real variant and carry its pixel size", () => {
+  const { map } = parseGlb({ bytes: glb([{ name: "Room_main", mesh: 0 }, { name: "Spawn_Main" }]) });
+  const base = {
+    rect: { minX: -10, maxX: 10, minZ: -10, maxZ: 10 },
+    zAxis: "down" as const,
+    source: "camera" as const,
+    pixelWidth: 1000,
+    pixelHeight: 1000,
+    variants: { textured: "https://assets.artrium.space/t.png" },
+    defaultVariant: "textured" as const,
+  };
+  const codes = (minimap: unknown) => validateMap({ ...map, minimap }).map((i) => i.code);
+
+  assert.deepEqual(codes(base), []);
+  assert.ok(codes({ ...base, defaultVariant: "dark" }).includes("minimap.default-variant"));
+  assert.ok(codes({ ...base, variants: { sepia: "x" } }).includes("minimap.unknown-variant"));
+  assert.ok(codes({ ...base, pixelWidth: null, pixelHeight: null }).includes("minimap.pixel-size"));
+  // A 2:1 image over a square rectangle would stretch every marker.
+  assert.ok(codes({ ...base, pixelWidth: 2000 }).includes("minimap.aspect-mismatch"));
+});
