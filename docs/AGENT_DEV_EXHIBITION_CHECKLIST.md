@@ -152,7 +152,7 @@ All `/dev/exhibition/*` and `/api/dev/exhibition/*` (except auth) require a vali
 
 ## Suggested file layout (keep lean)
 
-M1–M3 are built. Nothing else should appear in this tree.
+M1–M3 and M4 so far are built. Nothing else should appear in this tree.
 
 ```text
 app/dev/exhibition/
@@ -169,9 +169,18 @@ app/api/dev/exhibition/
   imports/route.ts           # list + create
   imports/[id]/route.ts      # get
 
+app/lib/exhibition-map/      # shared by the dev portal and the visitor gallery; imports nothing
+  schema.ts                  # ONE map JSON type + validation helpers
+
+app/lib/exhibition/          # visitor side
+  map.ts                     # getExhibition(id): reads content/exhibitions/<id>.json
+  map.test.ts                # guards the published file itself
+
+content/exhibitions/         # published maps — committed, never written at runtime
+
 app/lib/dev/exhibition/
   auth.ts                    # this portal's cookie name, secret, lifetime
-  schema.ts                  # ONE map JSON type + validation helpers
+  imports.ts                 # saved-import envelope, hub summary, import ids
   parseGlb.ts                # runs in the browser AND in the parse route
   parseGlb.test.ts           # `npm test`
   __fixtures__/              # GLB heads only — see its README
@@ -277,19 +286,30 @@ Use the milestone named in the issue. Leave later milestones untouched.
 
 **Caution when testing production locally:** `pkill -f "next start"` does not reliably kill the server. Confirm with `lsof -nP -iTCP:<port> -sTCP:LISTEN` before trusting a result — a stale process serving an old build produced a wrong reading during this milestone and sent the investigation down a false path.
 
-### M4 — Visitor gallery wiring (only if issue asks)
+### M4 — Visitor gallery wiring — 🟡 in progress
 
 **M4 depends on the publishing model below. Read it first.**
 
-- [ ] Publish the map as a **committed static file**, not a runtime read of the dev portal's store:
-      - parse the final GLB in `/dev/exhibition/parser`, use **Download**, commit the result to `content/exhibitions/<slug>.json`
-      - add one loader under `app/lib/exhibition/` that reads it server-side, the way `app/lib/updates.ts:7` already reads `content/updates/*.json`
-      - the visitor gallery reads that loader. It must not call `/api/dev/exhibition/*`, which is password-gated, and must not need `BLOB_READ_WRITE_TOKEN`.
-- [ ] Load that map into the existing visitor gallery path without forking a second viewer app.
-- [ ] Replace the hardcoded `camera.position.set(0, 1.4, 5)` (`GalleryViewer.tsx:491`) with `Spawn_Main` position + rotation from the map. This is the point of extracting spawns.
-- [ ] Resolve the `artworks.ts` duplication. The map document carries **spatial ids only**; `app/exhibition/artworks.ts` carries content (title/artist/year/medium/dimensions/description) keyed by mesh name. Leaving both means two hand-reconciled sources keyed by two naming schemes — exactly what the importer exists to prevent. Join content to spatial records by `Artwork_<id>`, and re-key `artworks.ts` to those ids in the same change.
-- [ ] Minimap: designer PNG underlay + markers from saved map JSON; live player pose stays frontend-local (see **Minimap** under the contract below). Do not generate the primary floorplan from `rooms[].bounds` boxes.
+- [x] Publish the map as a **committed static file**: `content/exhibitions/standardized-vgallery.json`, produced by the real parser (the same function **Download** serializes) from `Standardized-VGallery.glb`.
+- [x] One loader, `app/lib/exhibition/map.ts` → `getExhibition(id)`. Reads committed JSON only, the way `app/lib/updates.ts` does. No dev API, no Blob token.
+- [x] The visitor route serves that map without forking a second viewer.
+- [x] `Spawn_Main` replaces the hardcoded `camera.position.set(0, 1.4, 5)`.
+- [x] The parser page gains an **Asset URL** field, so **Download** produces a publishable file. A file-parse cannot know where visitors will load the GLB from, and without it the downloaded map had `assetUrl: null`.
+- [ ] **Minimap in the visitor gallery**: PNG underlay + markers from the published map, live player pose frontend-local (see **Minimap** under the contract below). Next.
+- [ ] Resolve the `artworks.ts` duplication — **blocked on paintings.** `Standardized-VGallery.glb` contains **zero** `Artwork_*` objects; the architecture previously tagged that way is now `Scenery_*`. `artworks.ts` is still keyed to the old file's mesh names (`DesertHawk001`, `IMG_0738`, `IMG_1986`), so the viewer logs three "not found" warnings. Harmless, and it will stay that way until the designer adds the paintings. Join content by `Artwork_<id>` then, and re-key `artworks.ts` in the same change.
 - [ ] Do **not** add collision detection here. The viewer has none today, which is why a player can stand outside the floorplan on the minimap. Real fix, separate frontend task, separate issue.
+
+**Before merging to `main`:** upload `Standardized-VGallery.glb` to `https://assets.artrium.space/Standardized-VGallery.glb`. The published map points there, production ignores the dev override, and the file is not on the CDN yet — so production would load nothing until it is.
+
+**What M4 settled so far (do not relitigate)**
+
+- **The map schema is shared, at `app/lib/exhibition-map/schema.ts`.** The visitor gallery now reads maps the dev portal produces, and the rules forbid one feature importing another, so the schema moved below both. It imports nothing. The dev-only persistence envelope (`StoredImport`, `ImportSummary`, `summarize`, import ids) moved to `app/lib/dev/exhibition/imports.ts`, since the visitor has no use for it. Library files the test suite compiles use relative imports — the CommonJS test build cannot resolve `@/`.
+- **Access and identity are separate.** The unlisted `GALLERY_ROUTE_SLUG` still gates the route exactly as before; `GALLERY_EXHIBITION_ID` in `gallery-config.ts` picks which published map it shows. That line is the seam S1 replaces.
+- **`getExhibition` returns null for a missing file but throws for an invalid one.** Null is the right answer for a slug that was never published; a committed-but-broken map is a publishing mistake and must fail loudly. The gallery route throws on null too, because its id is a constant — a missing map there is misconfiguration, not a 404.
+- **Production always loads the published `assetUrl`.** `modelUrlFor()` honours `NEXT_PUBLIC_GALLERY_MODEL_URL` only outside production, so a stale value left in Vercel cannot swap the model under the published map. Verified at runtime, not just in the unit test: with the override set, `next start` served the CDN URL and `next dev` the local one.
+- **`Spawn_*` marks the eye point, not the floor**, and only its heading is applied — an Empty's full orientation would pitch or roll the view on entry. The designer placed `Spawn_Main` at `(0, 1.4, 5)`, identical to the old constant, so this file looks exactly as before; that is the wiring proven by construction.
+- **The published file is under test.** `app/lib/exhibition/map.test.ts` fails if it stops validating, loses `Spawn_Main`, loses its camera rectangle, or points `assetUrl` anywhere but the CDN. Both guards were checked by breaking the file on purpose.
+- **The parse route's SSRF allowlist is a constant**, `assets.artrium.space`. It used to add `GALLERY_MODEL_URL`'s host, which no longer exists now that each map carries its own asset.
 
 ---
 

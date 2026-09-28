@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { GALLERY_MODEL_URL } from "@/app/lib/gallery-config";
 import { glbJsonChunkRange, GlbFormatError, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
 import { validateMap, type ParseResult } from "@/app/lib/exhibition-map/schema";
 
@@ -9,16 +8,8 @@ export const dynamic = "force-dynamic";
 // asset). This cap keeps a hostile or corrupt header from making us allocate.
 const MAX_JSON_CHUNK = 32 * 1024 * 1024;
 
-/** Only assets we publish. Prevents this route being used to fetch arbitrary URLs. */
-function allowedHosts(): Set<string> {
-  const hosts = new Set(["assets.artrium.space"]);
-  try {
-    hosts.add(new URL(GALLERY_MODEL_URL).host);
-  } catch {
-    // GALLERY_MODEL_URL misconfigured; the default host above still applies.
-  }
-  return hosts;
-}
+/** Only the host we publish to. Prevents this route being used to fetch arbitrary URLs. */
+const ALLOWED_HOSTS = new Set(["assets.artrium.space"]);
 
 function bad(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
@@ -41,9 +32,9 @@ async function parseByUrl(rawUrl: string): Promise<ParseResult> {
     throw new GlbFormatError("Not a valid URL.");
   }
   if (url.protocol !== "https:") throw new GlbFormatError("Asset URL must be https.");
-  if (!allowedHosts().has(url.host)) {
+  if (!ALLOWED_HOSTS.has(url.host)) {
     throw new GlbFormatError(
-      `Host "${url.host}" is not an Artrium asset host. Allowed: ${[...allowedHosts()].join(", ")}.`
+      `Host "${url.host}" is not an Artrium asset host. Allowed: ${[...ALLOWED_HOSTS].join(", ")}.`
     );
   }
 

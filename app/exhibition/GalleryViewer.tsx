@@ -10,7 +10,8 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import { GALLERY_MODEL_URL, DRACO_DECODER_PATH } from '../lib/gallery-config'
+import { DRACO_DECODER_PATH } from '../lib/gallery-config'
+import type { Spawn } from '../lib/exhibition-map/schema'
 import { ARTWORKS, ARTWORK_NAMES, getArtworkConfig, type ArtworkConfig } from './artworks'
 
 const ARCH_PATH = "M95.7731 0C42.8754 0 0 42.8827 0 95.7731V191.546H191.546V95.7731C191.546 42.8827 148.671 0 95.7731 0Z"
@@ -259,12 +260,14 @@ function ArtworkDetailOverlay({ artwork, onClose }: { artwork: ArtworkConfig; on
 }
 
 function Gallery({
+  modelUrl,
   reloadKey,
   onProgress,
   onError,
   onLoaded,
   onSceneReady,
 }: {
+  modelUrl: string
   reloadKey: number
   onProgress: (loaded: number, total: number) => void
   onError: (error: unknown) => void
@@ -284,7 +287,7 @@ function Gallery({
     loader.setDRACOLoader(dracoLoader)
 
     loader.load(
-      GALLERY_MODEL_URL,
+      modelUrl,
       (gltf) => {
         if (cancelled) return
         gltf.scene.traverse((obj) => {
@@ -313,7 +316,7 @@ function Gallery({
       dracoLoader.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadKey])
+  }, [reloadKey, modelUrl])
 
   if (!scene) return null
   return <primitive object={scene} />
@@ -482,13 +485,20 @@ function ArtworkInteractions({
 const SPEED = 5
 const keys = new Set<string>()
 
-function Player({ paused }: { paused: boolean }) {
+// Spawn_* marks the eye point, not the floor. Only its heading is applied: an
+// Empty's full orientation would pitch or roll the view on entry.
+function Player({ paused, spawn }: { paused: boolean; spawn: Spawn }) {
   const { camera } = useThree()
   const velocity = useRef(new THREE.Vector3())
   const direction = useRef(new THREE.Vector3())
 
   useEffect(() => {
-    camera.position.set(0, 1.4, 5)
+    camera.position.set(spawn.position.x, spawn.position.y, spawn.position.z)
+    const heading = new THREE.Euler().setFromQuaternion(
+      new THREE.Quaternion(spawn.rotation.x, spawn.rotation.y, spawn.rotation.z, spawn.rotation.w),
+      'YXZ'
+    ).y
+    camera.rotation.set(0, heading, 0, 'YXZ')
     const onKeyDown = (e: KeyboardEvent) => keys.add(e.code)
     const onKeyUp = (e: KeyboardEvent) => keys.delete(e.code)
     window.addEventListener('keydown', onKeyDown)
@@ -497,7 +507,7 @@ function Player({ paused }: { paused: boolean }) {
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [camera])
+  }, [camera, spawn])
 
   useFrame((_, delta) => {
     if (paused) return
@@ -532,7 +542,7 @@ function Player({ paused }: { paused: boolean }) {
   return null
 }
 
-export default function GalleryViewer() {
+export default function GalleryViewer({ modelUrl, spawn }: { modelUrl: string; spawn: Spawn }) {
   const [locked, setLocked] = useState(false)
   const [progress, setProgress] = useState(0)
   const [loaded, setLoaded] = useState(false)
@@ -602,13 +612,14 @@ export default function GalleryViewer() {
         <directionalLight position={[5, 10, 5]} intensity={1} castShadow />
         <Gallery
           key={reloadKey}
+          modelUrl={modelUrl}
           reloadKey={reloadKey}
           onProgress={handleProgress}
           onError={handleError}
           onLoaded={handleLoaded}
           onSceneReady={handleSceneReady}
         />
-        <Player paused={overlayOpen} />
+        <Player paused={overlayOpen} spawn={spawn} />
         {gltfScene && (
           <ArtworkInteractions
             scene={gltfScene}

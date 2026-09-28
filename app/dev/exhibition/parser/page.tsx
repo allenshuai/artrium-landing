@@ -31,6 +31,7 @@ const EMPTY: State = { map: null, issues: [], serverIssues: null, note: null, er
 export default function ParserPage() {
   const [state, setState] = useState<State>(EMPTY);
   const [saved, setSaved] = useState<string | null>(null);
+  const [assetUrl, setAssetUrl] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [url, setUrl] = useState("");
@@ -64,6 +65,7 @@ export default function ParserPage() {
         error: null,
         busy: false,
       });
+      setAssetUrl(map.assetUrl ?? "");
     } catch (e) {
       setState({
         ...EMPTY,
@@ -95,20 +97,33 @@ export default function ParserPage() {
         error: null,
         busy: false,
       });
+      setAssetUrl((data.map as ExhibitionMap).assetUrl ?? "");
     } catch {
       setState({ ...EMPTY, error: "Request failed." });
     }
   }, [url]);
 
+  // What Download and Save emit: the parse, plus where visitors will load the GLB
+  // from. A file-parse cannot know that on its own, and a map without it cannot
+  // be published to content/exhibitions/.
+  const published: ExhibitionMap | null = state.map
+    ? { ...state.map, assetUrl: assetUrl.trim() || null }
+    : null;
+  const assetUrlHint = !assetUrl.trim()
+    ? "Required before publishing — the visitor gallery has nothing to load without it."
+    : !assetUrl.trim().startsWith("https://assets.artrium.space/")
+      ? "Visitors load from assets.artrium.space. A local path only works in development, via NEXT_PUBLIC_GALLERY_MODEL_URL."
+      : null;
+
   async function save() {
-    if (!state.map || saving) return;
+    if (!published || saving) return;
     setSaving(true);
     setSaveError(null);
     try {
       const res = await fetch("/api/dev/exhibition/imports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ map: state.map, errors: state.issues }),
+        body: JSON.stringify({ map: published, errors: state.issues }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Save failed (${res.status}).`);
@@ -120,11 +135,11 @@ export default function ParserPage() {
   }
 
   function download() {
-    if (!state.map) return;
-    const blob = new Blob([JSON.stringify(state.map, null, 2)], { type: "application/json" });
+    if (!published) return;
+    const blob = new Blob([JSON.stringify(published, null, 2) + "\n"], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `${state.map.source.filename?.replace(/\.glb$/i, "") ?? "exhibition"}.map.json`;
+    a.download = `${published.source.filename?.replace(/\.glb$/i, "") ?? "exhibition"}.map.json`;
     a.click();
     URL.revokeObjectURL(a.href);
   }
@@ -216,6 +231,19 @@ export default function ParserPage() {
             <p className="mt-4 text-sm text-[#3F3A36]/60">No issues — this export satisfies the naming contract.</p>
           )}
 
+          <label className="mt-6 block text-sm">
+            <span className="block text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">
+              Asset URL
+            </span>
+            <input
+              value={assetUrl}
+              onChange={(e) => setAssetUrl(e.target.value)}
+              placeholder="https://assets.artrium.space/….glb"
+              className="mt-1 w-full border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
+            />
+            {assetUrlHint && <span className="mt-1 block text-sm text-[#D98C1F]">{assetUrlHint}</span>}
+          </label>
+
           <div className="mt-6 flex items-center justify-between gap-4">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">Map JSON</h2>
             <div className="flex items-center gap-4">
@@ -242,7 +270,7 @@ export default function ParserPage() {
           )}
           {saveError && <p className="mt-2 border-l-2 border-[#C0392B] pl-3 text-sm text-[#C0392B]">{saveError}</p>}
           <pre className="mt-2 max-h-96 overflow-auto border border-[#3F3A36]/20 bg-white p-4 text-xs leading-relaxed">
-            {JSON.stringify(state.map, null, 2)}
+            {JSON.stringify(published, null, 2)}
           </pre>
 
           <MinimapPreview map={state.map} />
