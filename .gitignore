@@ -49,3 +49,6 @@ next-env.d.ts
 
 # local dev import store (Blob stands in for this on Vercel)
 /.local-imports/
+
+# large GLBs served locally for dev only (never committed)
+/public/local/
