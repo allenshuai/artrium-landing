@@ -394,7 +394,7 @@ The visitor minimap is **not** a procedural floorplan from `rooms[].bounds`. The
 
 Ignore `y`. Map world `(x, z)` into image pixels using **the world rectangle the image actually covers**, then flip the vertical axis if needed.
 
-> **Do not normalize against `map.bounds`.** Measured against the real assets, that rule puts 3 of 5 artworks off the edge of the map: `bounds` is the `Room_*` union, and the lintels sit outside their room's box (`lintel-north` u=1.0035, `lintel-east` u=−0.0034, `lintel-west` v=−0.0037). The image rectangle and `bounds` are two different rectangles. Obtain the rectangle from an orthographic `Minimap_Camera` in the GLB, and until one exists, from the artist's ortho scale recorded against the import. See **Phase 0** and **The mechanism** in `AGENT_MULTI_EXHIBITION_PLAN.md`.
+> **Do not normalize against `map.bounds`.** Measured against the real assets, that rule puts 3 of 5 artworks off the edge of the map: `bounds` is the `Room_*` union, and the lintels sit outside their room's box (`lintel-north` u=1.0035, `lintel-east` u=−0.0034, `lintel-west` v=−0.0037). The image rectangle and `bounds` are two different rectangles. Obtain the rectangle from the orthographic minimap camera in the GLB (`OrthographicTopCamera`, or the earlier name `Minimap_Camera`), and until one exists, from the artist's ortho scale recorded against the import. See **Phase 0** and **The mechanism** in `AGENT_MULTI_EXHIBITION_PLAN.md`.
 
 Wrong alignment is a designer/export bug, not something to paper over in the viewer.
 

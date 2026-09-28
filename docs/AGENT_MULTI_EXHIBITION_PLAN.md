@@ -76,7 +76,7 @@ numbers against the import and move on. This is a stopgap for renders that alrea
 exist and where nobody captured the camera — it is not the long-term mechanism.
 
 **This is now on the launch critical path**, and it depends on the lead artist
-being reachable. If a re-export with `Minimap_Camera` (L1) lands before launch,
+being reachable. If a re-export with `OrthographicTopCamera` (L1) lands before launch,
 Phase 0 is skipped entirely — the camera supersedes it. Treat Phase 0 as the
 fallback for shipping against PNGs that already exist.
 
@@ -155,7 +155,7 @@ The minimap cannot ship correctly without all three.
 
 ### L1 — Minimap rectangle from the camera
 
-- [ ] Extract an orthographic `Minimap_Camera` from the GLB; fall back to a
+- [ ] Extract an orthographic `OrthographicTopCamera` from the GLB (`Minimap_Camera` still parses); fall back to a
       `MinimapBounds` mesh AABB; otherwise leave `minimap` null and say so in
       `errors[]`. **Never guess a rectangle** — see the 23% ambiguity above.
 - [ ] Add the `minimap` block to `schema.ts` (below). **One** rectangle shared by
@@ -313,7 +313,7 @@ stays frontend-local and is never written to the map document.
 
 Additions to the existing naming contract, not replacements:
 
-- Add an **orthographic camera named `Minimap_Camera`** pointing straight down.
+- Add an **orthographic camera named `OrthographicTopCamera`** pointing straight down. `Minimap_Camera` still parses.
 - Keep it **axis-aligned with zero roll**. Rotation would force a full 2×3 affine on
   every consumer; the current renders already comply, so this only codifies practice.
 - Tick **Include → Cameras** when exporting the GLB.

@@ -50,7 +50,7 @@ export type ExhibitionMap = {
   spawns: Spawn[];
   /** Floorplan polylines. Always empty until the walls milestone. */
   walls: never[];
-  /** Null until a Minimap_Camera or MinimapBounds exists, or one is calibrated. */
+  /** Null until a minimap camera or MinimapBounds exists, or one is calibrated. */
   minimap: Minimap | null;
 };
 
@@ -91,7 +91,13 @@ const LOOSE: Record<Prefix, RegExp> = {
 };
 
 export const BOUNDS_OBJECT = "ExhibitionBounds";
-export const MINIMAP_CAMERA_OBJECT = "Minimap_Camera";
+
+/**
+ * Top-down orthographic camera that frames the minimap. Current Blender exports
+ * name it `OrthographicTopCamera`. `Minimap_Camera` is the earlier name and still parses.
+ */
+export const MINIMAP_CAMERA_OBJECTS = ["OrthographicTopCamera", "Minimap_Camera"] as const;
+export const MINIMAP_CAMERA_OBJECT = MINIMAP_CAMERA_OBJECTS[0];
 
 /** A collapsed Blender duplicate suffix (".001" -> "001") hides here. */
 const SUSPECT_TRAILING_DIGITS = /\d{3,}$/;

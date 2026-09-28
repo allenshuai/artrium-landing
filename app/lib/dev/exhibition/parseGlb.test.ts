@@ -346,14 +346,14 @@ test("every artwork in the real export now normalises inside the map", () => {
   }
 });
 
-test("a Minimap_Camera defines the rectangle and the z direction", () => {
+test("OrthographicTopCamera defines the rectangle and the z direction", () => {
   const { map, errors } = parseGlb({
     bytes: glb(
       [
         { name: "Room_main", mesh: 0 },
         { name: "Spawn_Main" },
         // Rotated -90° about X: looks down world -Y, camera up along world -Z.
-        { name: "Minimap_Camera", translation: [2, 40, -3], rotation: [-0.7071068, 0, 0, 0.7071068], camera: 0 },
+        { name: "OrthographicTopCamera", translation: [2, 40, -3], rotation: [-0.7071068, 0, 0, 0.7071068], camera: 0 },
       ],
       { camera: { type: "orthographic", orthographic: { xmag: 50, ymag: 50 } } }
     ),
@@ -368,6 +368,39 @@ test("a Minimap_Camera defines the rectangle and the z direction", () => {
   assert.equal(Math.round(map.minimap.rect.minZ), -53);
   assert.equal(Math.round(map.minimap.rect.maxZ), 47);
   assert.equal(map.minimap.zAxis, "down");
+});
+
+test("the earlier Minimap_Camera name still defines the rectangle", () => {
+  const { map, errors } = parseGlb({
+    bytes: glb(
+      [
+        { name: "Room_main", mesh: 0 },
+        { name: "Spawn_Main" },
+        { name: "Minimap_Camera", translation: [0, 40, 0], rotation: [-0.7071068, 0, 0, 0.7071068], camera: 0 },
+      ],
+      { camera: { type: "orthographic", orthographic: { xmag: 10, ymag: 10 } } }
+    ),
+  });
+  assert.equal(errors.length, 0);
+  assert.equal(map.minimap?.source, "camera");
+  assert.equal(map.minimap?.rect.minX, -10);
+  assert.equal(map.minimap?.rect.maxX, 10);
+});
+
+test("two minimap cameras are an error rather than a guess", () => {
+  const { map, errors } = parseGlb({
+    bytes: glb(
+      [
+        { name: "Room_main", mesh: 0 },
+        { name: "Spawn_Main" },
+        { name: "OrthographicTopCamera", rotation: [-0.7071068, 0, 0, 0.7071068], camera: 0 },
+        { name: "Minimap_Camera", rotation: [-0.7071068, 0, 0, 0.7071068], camera: 0 },
+      ],
+      { camera: { type: "orthographic", orthographic: { xmag: 10, ymag: 10 } } }
+    ),
+  });
+  assert.equal(map.minimap, null);
+  assert.ok(errors.some((e) => e.code === "minimap.duplicate-camera"));
 });
 
 test("a camera that is not orthographic or not top-down is rejected, not guessed", () => {

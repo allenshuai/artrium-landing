@@ -12,7 +12,7 @@
 
 import {
   BOUNDS_OBJECT,
-  MINIMAP_CAMERA_OBJECT,
+  MINIMAP_CAMERA_OBJECTS,
   PARSER_VERSION,
   REQUIRED_SPAWN_ID,
   duplicates,
@@ -256,7 +256,7 @@ function roomAncestor(parents: string[]): string | null {
 
 
 /**
- * The world rectangle an orthographic `Minimap_Camera` frames.
+ * The world rectangle an orthographic minimap camera frames.
  *
  * glTF cameras look down their local -Z with +Y up, so a top-down minimap camera
  * is rotated to point along world -Y. `xmag`/`ymag` are HALF-extents of the view
@@ -265,14 +265,24 @@ function roomAncestor(parents: string[]): string | null {
  * against a known distance rather than trusting the round trip.
  */
 function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): Minimap | null {
-  const entry = flat.find((f) => f.name === MINIMAP_CAMERA_OBJECT);
+  const found = flat.filter((f) => (MINIMAP_CAMERA_OBJECTS as readonly string[]).includes(f.name));
+  if (found.length > 1) {
+    errors.push({
+      level: "error",
+      code: "minimap.duplicate-camera",
+      message: `Found both ${found.map((f) => f.name).join(" and ")}. Keep a single top-down orthographic camera.`,
+      object: found[1].name,
+    });
+    return null;
+  }
+  const entry = found[0];
   if (!entry) return null;
 
   if (entry.node.camera === undefined) {
     errors.push({
       level: "error",
       code: "minimap.not-a-camera",
-      message: `${MINIMAP_CAMERA_OBJECT} exists but carries no camera. In Blender, tick Include → Cameras when exporting.`,
+      message: `${entry.name} exists but carries no camera. In Blender, tick Include → Cameras when exporting.`,
       object: entry.name,
     });
     return null;
@@ -284,7 +294,7 @@ function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): 
     errors.push({
       level: "error",
       code: "minimap.not-orthographic",
-      message: `${MINIMAP_CAMERA_OBJECT} must be an orthographic camera with non-zero xmag/ymag. A perspective camera cannot define a flat map rectangle.`,
+      message: `${entry.name} must be an orthographic camera with non-zero xmag/ymag. A perspective camera cannot define a flat map rectangle.`,
       object: entry.name,
     });
     return null;
@@ -301,7 +311,7 @@ function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): 
     errors.push({
       level: "error",
       code: "minimap.camera-not-top-down",
-      message: `${MINIMAP_CAMERA_OBJECT} does not point straight down (forward y=${forward.y.toFixed(3)}). Keep it axis-aligned with no roll.`,
+      message: `${entry.name} does not point straight down (forward y=${forward.y.toFixed(3)}). Keep it axis-aligned with no roll.`,
       object: entry.name,
     });
     return null;

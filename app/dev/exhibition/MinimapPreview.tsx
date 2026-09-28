@@ -15,7 +15,7 @@ import {
 // Derived provisionally from pixel measurement of the current renders: the
 // content box is inset 45px on all sides, and framing the room footprint instead
 // of all geometry would place objects outside a 2560px image, which the clean
-// margins rule out. Superseded the moment a Minimap_Camera exists.
+// margins rule out. Superseded the moment an orthographic minimap camera exists.
 const PROVISIONAL_HALF_EXTENT = 56.356;
 
 function defaultMinimap(map: ExhibitionMap): Minimap {
@@ -168,7 +168,7 @@ export default function MinimapPreview({ map }: { map: ExhibitionMap }) {
         )}
         {map.minimap && (
           <span className="text-sm text-[#1F7A4D]">
-            Minimap_Camera found — rectangle came from the GLB
+            Minimap camera found — rectangle came from the GLB
           </span>
         )}
       </div>
