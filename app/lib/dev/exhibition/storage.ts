@@ -1,6 +1,6 @@
 import "server-only";
 
-import { list, put } from "@vercel/blob";
+import { get, list, put } from "@vercel/blob";
 import {
   hasBlockingError,
   validateMap,
@@ -25,6 +25,12 @@ import {
 
 const PREFIX = "dev-exhibition-imports/";
 const LOCAL_DIR = ".local-imports";
+
+// The store was created private, and a store's access mode cannot be changed
+// afterwards. put() must name the same mode, and documents are read through
+// the SDK rather than fetched by URL, so a saved import is never readable by
+// anyone outside the password gate.
+const ACCESS = "private";
 
 /**
  * `invalid` = the submitted document cannot be stored (the caller's problem).
@@ -116,13 +122,15 @@ async function localList(): Promise<StoredImport[]> {
 
 // --- blob backend ----------------------------------------------------------
 
+/** One stored document by pathname, or null when there is no such blob. */
+async function readBlob(pathname: string): Promise<StoredImport | null> {
+  const result = await get(pathname, { access: ACCESS, token: blobToken() });
+  if (!result || result.statusCode !== 200) return null;
+  return (await new Response(result.stream).json()) as StoredImport;
+}
+
 async function blobGet(id: string): Promise<StoredImport | null> {
-  const { blobs } = await list({ prefix: `${PREFIX}${id}.json`, token: blobToken(), limit: 1 });
-  const blob = blobs[0];
-  if (!blob) return null;
-  const res = await fetch(blob.url, { cache: "no-store" });
-  if (!res.ok) return null;
-  return (await res.json()) as StoredImport;
+  return readBlob(`${PREFIX}${id}.json`);
 }
 
 // --- public API ------------------------------------------------------------
@@ -153,7 +161,7 @@ export async function saveImport(map: unknown, errors: ParseIssue[]): Promise<st
   }
 
   await put(`${PREFIX}${id}.json`, JSON.stringify(doc), {
-    access: "public",
+    access: ACCESS,
     contentType: "application/json",
     token: blobToken(),
     addRandomSuffix: false,
@@ -174,12 +182,7 @@ export async function listImports(): Promise<ImportSummary[]> {
     docs = await localList();
   } else {
     const { blobs } = await list({ prefix: PREFIX, token: blobToken() });
-    const fetched = await Promise.all(
-      blobs.map(async (b) => {
-        const res = await fetch(b.url, { cache: "no-store" });
-        return res.ok ? ((await res.json()) as StoredImport) : null;
-      })
-    );
+    const fetched = await Promise.all(blobs.map((b) => readBlob(b.pathname)));
     docs = fetched.filter((d): d is StoredImport => d !== null);
   }
 
