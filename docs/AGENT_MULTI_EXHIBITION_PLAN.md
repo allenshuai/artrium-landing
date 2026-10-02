@@ -185,7 +185,7 @@ what makes S1/S2 safe to defer.
 - [x] `content/exhibitions/<slug>.json`, committed, read server-side by one loader
       under `app/lib/exhibition/`.
 - [x] The visitor path must not call `/api/dev/exhibition/*` (password-gated) and
-      must not need `BLOB_READ_WRITE_TOKEN`.
+      must not need Blob credentials (`BLOB_STORE_ID` or `BLOB_READ_WRITE_TOKEN`).
 - [ ] Minimap PNGs published to `assets.artrium.space`, not `public/`. **Pending**: the
       published map already points at `Textured_MiniMap.png` there, alongside the GLB;
       both need uploading to R2 before `main`. Development serves them from the
