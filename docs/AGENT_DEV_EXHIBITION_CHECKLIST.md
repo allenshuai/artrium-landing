@@ -277,8 +277,8 @@ Use the milestone named in the issue. Leave later milestones untouched.
 
 **What M3 settled**
 
-- **`@vercel/blob` is a new dependency and `BLOB_READ_WRITE_TOKEN` a new env key** — both required before saving works on `artrium.space`. Add a Blob store to the Vercel project and set the token, or the portal returns 503 on every imports endpoint.
-- **Dev falls back to `.local-imports/`** (gitignored) when no token is set, so the portal is testable offline. **Production never falls back** — it throws, because a store that silently accepts writes going nowhere is the exact failure the M3 warning was about.
+- **`@vercel/blob` is a new dependency, and a connected Blob store is required before saving works on `artrium.space`.** Connecting a store to the Vercel project sets `BLOB_STORE_ID`, and the SDK authenticates with the OIDC token Vercel injects at runtime; `BLOB_READ_WRITE_TOKEN` is only for code running outside Vercel. `storage.ts` treats either variable as "Blob configured". Without one, the portal returns 503 on every imports endpoint.
+- **Dev falls back to `.local-imports/`** (gitignored) when neither `BLOB_STORE_ID` nor `BLOB_READ_WRITE_TOKEN` is set, so the portal is testable offline. **Production never falls back** — it throws, because a store that silently accepts writes going nowhere is the exact failure the M3 warning was about.
 - `StorageError` carries a `kind` (`"invalid" | "unavailable"`) and routes map it to **422 vs 503**. A misconfigured store is not the caller's fault and must not look like a rejected document.
 - Summaries are **derived** by `summarize()` from the stored document, never stored alongside it. There is no index blob to drift or corrupt; `listImports` reads each document, which is fine at this scale.
 - The stored document is `{ id, savedAt, map, errors }` — the import-time issues live with the map so `[id]` can explain a partial import without re-parsing a 300 MB asset.

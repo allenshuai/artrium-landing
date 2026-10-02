@@ -19,8 +19,8 @@ import {
 // it is read-only on Vercel apart from an ephemeral per-invocation /tmp, so
 // writing JSON under content/ would pass in `next dev` and fail in production.
 //
-// Without a Blob token, `next dev` falls back to a local directory so the portal
-// is testable offline. Production without a token throws rather than silently
+// Without a connected store, `next dev` falls back to a local directory so the
+// portal is testable offline. Production without one throws rather than silently
 // accepting writes that go nowhere.
 
 const PREFIX = "dev-exhibition-imports/";
@@ -49,15 +49,25 @@ export function isUnavailable(e: unknown): boolean {
   return e instanceof StorageError && e.kind === "unavailable";
 }
 
+/**
+ * An explicit long-lived token, or undefined so the SDK resolves credentials
+ * itself. On Vercel that is OIDC: connecting a store sets BLOB_STORE_ID, and the
+ * platform injects a short-lived VERCEL_OIDC_TOKEN at runtime that the SDK reads
+ * and refreshes. BLOB_READ_WRITE_TOKEN is only for code running outside Vercel.
+ */
 function blobToken(): string | undefined {
   return process.env.BLOB_READ_WRITE_TOKEN || undefined;
 }
 
+function blobConfigured(): boolean {
+  return Boolean(blobToken() || process.env.BLOB_STORE_ID);
+}
+
 function localStoreActive(): boolean {
-  if (blobToken()) return false;
+  if (blobConfigured()) return false;
   if (process.env.NODE_ENV === "production") {
     throw new StorageError(
-      "BLOB_READ_WRITE_TOKEN is not set. Add a Vercel Blob store to this project and set the token; imports cannot be persisted without it.",
+      "No Blob store is connected: neither BLOB_STORE_ID (set when a Vercel Blob store is connected to this project) nor BLOB_READ_WRITE_TOKEN is present. Connect a store and redeploy; imports cannot be persisted without it.",
       "unavailable"
     );
   }
