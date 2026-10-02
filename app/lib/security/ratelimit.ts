@@ -1,5 +1,7 @@
-// In-memory rate limit for the auth endpoints. Resets on cold start; that is
-// acceptable for a shared-password internal tool.
+// In-memory rate limit for the internal portals' auth endpoints. Callers
+// namespace their own keys ("view:", "lead:", "devex:") so the portals cannot
+// exhaust each other's budget. Resets on cold start and is per-instance; that is
+// acceptable for shared-password internal tools.
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 10;

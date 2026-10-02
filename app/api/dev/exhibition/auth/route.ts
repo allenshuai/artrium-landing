@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 import {
-  VIEW_COOKIE,
-  cookieOptions,
-  makeViewToken,
-} from "@/app/lib/ticketcenter/auth";
+  DEV_EX_COOKIE,
+  devExCookieOptions,
+  makeDevExToken,
+} from "@/app/lib/dev/exhibition/auth";
 import { allowAttempt, clientKey } from "@/app/lib/security/ratelimit";
 import { timingSafeEqual } from "@/app/lib/security/token";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  if (!allowAttempt("view:" + clientKey(req))) {
+  if (!allowAttempt("devex:" + clientKey(req))) {
     return NextResponse.json(
       { error: "Too many attempts. Try again later." },
       { status: 429 }
@@ -25,12 +25,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  const expected = process.env.TICKETCENTER_PASSWORD;
+  const expected = process.env.DEV_EXHIBITION_PASSWORD;
   if (!expected || !timingSafeEqual(password, expected)) {
     return NextResponse.json({ error: "Wrong password" }, { status: 401 });
   }
 
   const res = NextResponse.json({ ok: true });
-  res.cookies.set(VIEW_COOKIE, await makeViewToken(), cookieOptions());
+  res.cookies.set(DEV_EX_COOKIE, await makeDevExToken(), devExCookieOptions());
   return res;
 }

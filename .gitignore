@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
@@ -39,3 +40,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local test output
+/.test-build/
+
+# large local GLB samples (never committed; only their ~20KB heads are)
+/.local-assets/
+
+# local dev import store (Blob stands in for this on Vercel)
+/.local-imports/
+
+# large GLBs served locally for dev only (never committed)
+/public/local/

@@ -6,10 +6,10 @@ import {
   cookieOptions,
   makeLeadToken,
   parseLeads,
-  timingSafeEqual,
   verifyViewToken,
 } from "@/app/lib/ticketcenter/auth";
-import { allowAttempt, clientKey } from "@/app/lib/ticketcenter/ratelimit";
+import { allowAttempt, clientKey } from "@/app/lib/security/ratelimit";
+import { timingSafeEqual } from "@/app/lib/security/token";
 
 export const dynamic = "force-dynamic";
 

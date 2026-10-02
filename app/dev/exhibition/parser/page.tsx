@@ -1,0 +1,342 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useRef, useState } from "react";
+import { GlbFormatError, glbJsonChunkRange, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
+import type { ExhibitionMap, MinimapVariant, ParseIssue } from "@/app/lib/exhibition-map/schema";
+import IssueList from "../IssueList";
+import MinimapPreview, { type ChosenImage } from "../MinimapPreview";
+
+// Only the head of the file is needed, so a multi-hundred-MB GLB never gets
+// read into memory in full — and never gets uploaded (Vercel caps request
+// bodies around 4.5 MB).
+async function parseLocalFile(file: File) {
+  const { length } = glbJsonChunkRange(await file.slice(0, 20).arrayBuffer());
+  const read = 20 + length;
+  const bytes = await file.slice(0, read).arrayBuffer();
+  return { ...parseGlb({ bytes, filename: file.name, totalBytes: file.size }), read };
+}
+
+type State = {
+  map: ExhibitionMap | null;
+  issues: ParseIssue[];
+  serverIssues: ParseIssue[] | null;
+  note: string | null;
+  error: string | null;
+  busy: boolean;
+};
+
+const EMPTY: State = { map: null, issues: [], serverIssues: null, note: null, error: null, busy: false };
+
+export default function ParserPage() {
+  const [state, setState] = useState<State>(EMPTY);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [assetUrl, setAssetUrl] = useState("");
+  const [minimapImage, setMinimapImage] = useState<
+    (ChosenImage & { url: string; variant: MinimapVariant }) | null
+  >(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [url, setUrl] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleFile = useCallback(async (file: File) => {
+    setState({ ...EMPTY, busy: true });
+    setSaved(null);
+    setSaveError(null);
+    setMinimapImage(null);
+    try {
+      const { map, errors, read } = await parseLocalFile(file);
+      // Round-trip through the API so the server-side gate is exercised now,
+      // rather than first being trusted when M3 starts saving documents.
+      let serverIssues: ParseIssue[] | null = null;
+      try {
+        const res = await fetch("/api/dev/exhibition/parse", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ map }),
+        });
+        if (res.ok) serverIssues = ((await res.json()) as { errors: ParseIssue[] }).errors;
+      } catch {
+        // Local parse still stands; the page says validation was skipped.
+      }
+      setState({
+        map,
+        issues: errors,
+        serverIssues,
+        note: `Read ${read.toLocaleString()} of ${file.size.toLocaleString()} bytes — the JSON chunk only.`,
+        error: null,
+        busy: false,
+      });
+      setAssetUrl(map.assetUrl ?? "");
+    } catch (e) {
+      setState({
+        ...EMPTY,
+        error: e instanceof GlbFormatError ? e.message : e instanceof Error ? e.message : "Could not parse that file.",
+      });
+    }
+  }, []);
+
+  const handleUrl = useCallback(async () => {
+    setState({ ...EMPTY, busy: true });
+    setSaved(null);
+    setSaveError(null);
+    setMinimapImage(null);
+    try {
+      const res = await fetch("/api/dev/exhibition/parse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setState({ ...EMPTY, error: data.error ?? `Request failed (${res.status}).` });
+        return;
+      }
+      setState({
+        map: data.map,
+        issues: data.errors,
+        serverIssues: null,
+        note: "Parsed server-side from two range requests — the asset was never downloaded in full.",
+        error: null,
+        busy: false,
+      });
+      setAssetUrl((data.map as ExhibitionMap).assetUrl ?? "");
+    } catch {
+      setState({ ...EMPTY, error: "Request failed." });
+    }
+  }, [url]);
+
+  // What Download and Save emit: the parse, plus where visitors will load the GLB
+  // from. A file-parse cannot know that on its own, and a map without it cannot
+  // be published to content/exhibitions/.
+  // The minimap image is attached the same way: the GLB describes the frame, and
+  // the image rendered from it is added here, with its pixel size, so the aspect
+  // check can run against the camera's rectangle.
+  const imageUrl = minimapImage?.url.trim();
+  const published: ExhibitionMap | null = state.map
+    ? {
+        ...state.map,
+        assetUrl: assetUrl.trim() || null,
+        minimap:
+          state.map.minimap && minimapImage && imageUrl
+            ? {
+                ...state.map.minimap,
+                pixelWidth: minimapImage.width,
+                pixelHeight: minimapImage.height,
+                variants: { ...state.map.minimap.variants, [minimapImage.variant]: imageUrl },
+                defaultVariant: minimapImage.variant,
+              }
+            : state.map.minimap,
+      }
+    : null;
+
+  function chooseImage(image: ChosenImage) {
+    const name = image.fileName.toLowerCase();
+    const variant: MinimapVariant = name.includes("dark") ? "dark" : name.includes("white") || name.includes("light") ? "light" : "textured";
+    setMinimapImage({ ...image, variant, url: `https://assets.artrium.space/${image.fileName}` });
+  }
+  const assetUrlHint = !assetUrl.trim()
+    ? "Required before publishing — the visitor gallery has nothing to load without it."
+    : !assetUrl.trim().startsWith("https://assets.artrium.space/")
+      ? "Visitors load from assets.artrium.space. A local path only works in development, via NEXT_PUBLIC_GALLERY_MODEL_URL."
+      : null;
+
+  async function save() {
+    if (!published || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch("/api/dev/exhibition/imports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ map: published, errors: state.issues }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `Save failed (${res.status}).`);
+      setSaved(data.id as string);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Save failed.");
+    }
+    setSaving(false);
+  }
+
+  function download() {
+    if (!published) return;
+    const blob = new Blob([JSON.stringify(published, null, 2) + "\n"], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${published.source.filename?.replace(/\.glb$/i, "") ?? "exhibition"}.map.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  return (
+    <main className="mx-auto max-w-3xl px-6 py-14">
+      <div className="flex items-baseline justify-between gap-4">
+        <h1 className="text-2xl font-semibold">GLB parser</h1>
+        <Link href="/dev/exhibition" className="text-sm text-[#3F3A36]/60 underline underline-offset-4 hover:text-[#3F3A36]">
+          Back to hub
+        </Link>
+      </div>
+
+      <div
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragging(false);
+          const file = e.dataTransfer.files[0];
+          if (file) void handleFile(file);
+        }}
+        onClick={() => inputRef.current?.click()}
+        className={`mt-8 cursor-pointer border-2 border-dashed px-6 py-12 text-center transition ${
+          dragging ? "border-[#3F3A36] bg-white" : "border-[#3F3A36]/25"
+        }`}
+      >
+        <p className="font-medium">Drop an exhibition .glb here</p>
+        <p className="mt-1 text-sm text-[#3F3A36]/60">
+          Parsed in your browser. Only the file&apos;s header and JSON chunk are read, so size doesn&apos;t matter.
+        </p>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".glb,model/gltf-binary"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+          }}
+        />
+      </div>
+
+      <div className="mt-6 flex gap-2">
+        <input
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          placeholder="…or an https://assets.artrium.space/….glb URL"
+          className="flex-1 border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
+        />
+        <button
+          onClick={() => void handleUrl()}
+          disabled={state.busy || !url}
+          className="border border-[#3F3A36] bg-[#3F3A36] px-4 py-2 text-sm font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85 disabled:opacity-50"
+        >
+          Parse URL
+        </button>
+      </div>
+
+      {state.busy && <p className="mt-6 text-sm text-[#3F3A36]/60">Parsing…</p>}
+      {state.error && <p className="mt-6 border-l-2 border-[#C0392B] pl-3 text-sm text-[#C0392B]">{state.error}</p>}
+
+      {state.map && (
+        <section className="mt-8">
+          {state.note && <p className="text-sm text-[#3F3A36]/60">{state.note}</p>}
+
+          <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-2 border border-[#3F3A36]/20 bg-white p-4 text-sm sm:grid-cols-4">
+            {([
+              ["Rooms", state.map.rooms.length],
+              ["Artworks", state.map.artworks.length],
+              ["Spawns", state.map.spawns.length],
+              ["Walls", state.map.walls.length],
+            ] as const).map(([label, value]) => (
+              <div key={label}>
+                <dt className="text-xs uppercase tracking-wider text-[#3F3A36]/50">{label}</dt>
+                <dd className="text-lg font-semibold">{value}</dd>
+              </div>
+            ))}
+          </dl>
+
+          <IssueList title={`Parse issues (${state.issues.length})`} issues={state.issues} />
+          {state.serverIssues !== null && (
+            <IssueList title={`Server validation (${state.serverIssues.length})`} issues={state.serverIssues} />
+          )}
+          {state.issues.length === 0 && state.serverIssues?.length === 0 && (
+            <p className="mt-4 text-sm text-[#3F3A36]/60">No issues — this export satisfies the naming contract.</p>
+          )}
+
+          <label className="mt-6 block text-sm">
+            <span className="block text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">
+              Asset URL
+            </span>
+            <input
+              value={assetUrl}
+              onChange={(e) => setAssetUrl(e.target.value)}
+              placeholder="https://assets.artrium.space/….glb"
+              className="mt-1 w-full border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
+            />
+            {assetUrlHint && <span className="mt-1 block text-sm text-[#D98C1F]">{assetUrlHint}</span>}
+          </label>
+
+          <div className="mt-6 flex items-center justify-between gap-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">Map JSON</h2>
+            <div className="flex items-center gap-4">
+              <button onClick={download} className="text-sm underline underline-offset-4">
+                Download
+              </button>
+              <button
+                onClick={() => void save()}
+                disabled={saving}
+                className="border border-[#3F3A36] bg-[#3F3A36] px-3 py-1.5 text-sm font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85 disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save import"}
+              </button>
+            </div>
+          </div>
+
+          {saved && (
+            <p className="mt-2 text-sm">
+              Saved as{" "}
+              <Link href={`/dev/exhibition/${saved}`} className="font-mono underline underline-offset-4">
+                {saved}
+              </Link>
+            </p>
+          )}
+          {saveError && <p className="mt-2 border-l-2 border-[#C0392B] pl-3 text-sm text-[#C0392B]">{saveError}</p>}
+          <pre className="mt-2 max-h-96 overflow-auto border border-[#3F3A36]/20 bg-white p-4 text-xs leading-relaxed">
+            {JSON.stringify(published, null, 2)}
+          </pre>
+
+          {state.map.minimap && minimapImage && (
+            <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto]">
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">
+                  Minimap image URL ({minimapImage.width}×{minimapImage.height})
+                </span>
+                <input
+                  value={minimapImage.url}
+                  onChange={(e) => setMinimapImage({ ...minimapImage, url: e.target.value })}
+                  className="mt-1 w-full border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">Variant</span>
+                <select
+                  value={minimapImage.variant}
+                  onChange={(e) => setMinimapImage({ ...minimapImage, variant: e.target.value as MinimapVariant })}
+                  className="mt-1 border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
+                >
+                  <option value="textured">textured</option>
+                  <option value="dark">dark</option>
+                  <option value="light">light</option>
+                </select>
+              </label>
+              {!minimapImage.url.trim().startsWith("https://assets.artrium.space/") && (
+                <span className="text-sm text-[#D98C1F] sm:col-span-2">
+                  Visitors load the minimap from assets.artrium.space. A local path only works in development, via
+                  NEXT_PUBLIC_GALLERY_MINIMAP_URL.
+                </span>
+              )}
+            </div>
+          )}
+
+          <MinimapPreview map={state.map} onImage={chooseImage} />
+        </section>
+      )}
+    </main>
+  );
+}
