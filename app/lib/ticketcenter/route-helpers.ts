@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { LEAD_COOKIE, verifyLeadToken } from "./auth";
 import { MeetingNotFoundError, TicketNotFoundError } from "./sheets";
+import { OrgExistsError, OrgNotFoundError, OutreachNotConfiguredError } from "./outreach-sheets";
 
 /** Returns the unlocked lead's name, or null. */
 export async function currentLead(): Promise<string | null> {
@@ -20,8 +21,18 @@ export async function requireLead(): Promise<string | NextResponse> {
 }
 
 export function errorResponse(err: unknown): NextResponse {
-  if (err instanceof TicketNotFoundError || err instanceof MeetingNotFoundError) {
+  if (
+    err instanceof TicketNotFoundError ||
+    err instanceof MeetingNotFoundError ||
+    err instanceof OrgNotFoundError
+  ) {
     return NextResponse.json({ error: err.message }, { status: 404 });
+  }
+  if (err instanceof OrgExistsError) {
+    return NextResponse.json({ error: err.message }, { status: 409 });
+  }
+  if (err instanceof OutreachNotConfiguredError) {
+    return NextResponse.json({ error: "Outreach sheet is not configured." }, { status: 503 });
   }
   console.error("[ticketcenter]", err);
   return NextResponse.json(

@@ -20,7 +20,7 @@ const ARCH_GRID_COLS = Math.floor(100 / (HAIRLINE_VW * ARCH_CELL_HAIRLINES));
 const ARCH_GRID_ROWS = 20; // generous vertical coverage; layer clips via overflow-hidden
 const ARCH_COUNT = 20;
 
-/** Deterministic pseudo-random in [0, 1), stable across server/client renders. */
+/** Deterministic psesudo-random in [0, 1), stable across server/client renders. */
 function rand(seed: number): number {
   const x = Math.sin(seed * 12.9898) * 43758.5453;
   return x - Math.floor(x);

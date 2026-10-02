@@ -12,6 +12,14 @@ import {
   type MeetingFields,
   type MeetingStatus,
 } from "./meetings";
+import {
+  PRIORITIES,
+  isOutreachStatus,
+  parseList,
+  type DashboardFields,
+  type DirectoryFields,
+  type Priority,
+} from "./outreach";
 
 export function isValidStatus(s: unknown): s is TicketStatus {
   return typeof s === "string" && (TICKET_STATUSES as readonly string[]).includes(s);
@@ -159,4 +167,139 @@ export function validateMeeting(
   } else if (!partial) out.notes = "";
 
   return { ok: true, fields: out };
+}
+
+// ── Outreach (Directory / Dashboard tabs) ──
+
+
+type Ok<T> = { ok: true; fields: T };
+type Bad = { ok: false; error: string };
+
+/** Accepts an array of strings or one comma-separated string; trims, dedupes, caps. */
+function readList(v: unknown, label: string): string[] | string {
+  if (v === undefined) return "";
+  const list = Array.isArray(v)
+    ? parseList(v.filter((x) => typeof x === "string").join(","))
+    : typeof v === "string"
+      ? parseList(v)
+      : null;
+  if (list === null) return `${label} must be a list`;
+  if (list.length > 20) return `Too many ${label.toLowerCase()}`;
+  if (list.some((x) => x.length > 80)) return `${label} entries must be under 80 characters`;
+  return list;
+}
+
+const STRING_CAPS: Record<string, number> = {
+  city: 120,
+  website: 300,
+  social: 300,
+  fit: 2000,
+  notes: 5000,
+  contactName: 120,
+  role: 120,
+  email: 200,
+  phone: 60,
+  relationship: 200,
+  angle: 1000,
+  offer: 2000,
+  want: 2000,
+  nextAction: 1000,
+};
+
+/**
+ * Directory fields from a request body. With `partial`, missing keys stay
+ * undefined (PATCH); otherwise city is required and the rest default to blank.
+ * The org name is validated separately by the caller (create only).
+ */
+export function validateDirectory(body: Record<string, unknown>, partial: boolean): Ok<Partial<DirectoryFields>> | Bad {
+  const out: Partial<DirectoryFields> = {};
+  const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string).trim() : undefined);
+
+  for (const k of ["city", "website", "social", "fit", "notes"] as const) {
+    const v = str(k);
+    if (v !== undefined) {
+      if (v.length > STRING_CAPS[k]) return { ok: false, error: `${k} is too long` };
+      out[k] = v;
+    } else if (!partial) out[k] = "";
+  }
+  if (!partial && !out.city) return { ok: false, error: "City / Area is required" };
+
+  const types = readList(body.types, "Org types");
+  if (typeof types === "string") {
+    if (types) return { ok: false, error: types };
+    if (!partial) out.types = [];
+  } else out.types = types;
+
+  const owners = readList(body.owners, "Owners");
+  if (typeof owners === "string") {
+    if (owners) return { ok: false, error: owners };
+    if (!partial) out.owners = [];
+  } else out.owners = owners;
+
+  if (body.priority !== undefined) {
+    const p = typeof body.priority === "string" ? body.priority.trim() : null;
+    if (p === null || (p !== "" && !(PRIORITIES as readonly string[]).includes(p))) {
+      return { ok: false, error: "Priority must be High, Medium, Low or blank" };
+    }
+    out.priority = p as Priority | "";
+  } else if (!partial) out.priority = "";
+
+  if (body.status !== undefined) {
+    if (!isOutreachStatus(body.status)) return { ok: false, error: "Invalid status" };
+    out.status = body.status;
+  } else if (!partial) out.status = "Not Started";
+
+  return { ok: true, fields: out };
+}
+
+/** Dashboard fields from a request body (always PATCH-style: missing keys stay undefined). */
+export function validateDashboard(body: Record<string, unknown>): Ok<Partial<DashboardFields>> | Bad {
+  const out: Partial<DashboardFields> = {};
+  const str = (k: string) => (typeof body[k] === "string" ? (body[k] as string).trim() : undefined);
+
+  for (const k of [
+    "contactName", "role", "email", "phone", "social", "website",
+    "relationship", "angle", "offer", "want", "nextAction", "notes",
+  ] as const) {
+    const v = str(k);
+    if (v !== undefined) {
+      if (v.length > STRING_CAPS[k]) return { ok: false, error: `${k} is too long` };
+      out[k] = v;
+    }
+  }
+  if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) {
+    return { ok: false, error: "Email doesn't look right" };
+  }
+
+  for (const k of ["firstContact", "lastContact", "nextActionDate"] as const) {
+    const v = str(k);
+    if (v !== undefined) {
+      if (v.length > 40) return { ok: false, error: `${k} is too long` };
+      out[k] = normalizeDate(v);
+    }
+  }
+
+  const types = readList(body.types, "Org types");
+  if (typeof types === "string") {
+    if (types) return { ok: false, error: types };
+  } else out.types = types;
+
+  const owners = readList(body.owners, "Owners");
+  if (typeof owners === "string") {
+    if (owners) return { ok: false, error: owners };
+  } else out.owners = owners;
+
+  if (body.status !== undefined) {
+    if (!isOutreachStatus(body.status)) return { ok: false, error: "Invalid status" };
+    out.status = body.status;
+  }
+
+  return { ok: true, fields: out };
+}
+
+export function validateOrgName(v: unknown): { ok: true; name: string } | Bad {
+  const name = typeof v === "string" ? v.trim() : "";
+  if (!name) return { ok: false, error: "Org name is required" };
+  if (name.length > 120) return { ok: false, error: "Org name must be under 120 characters" };
+  return { ok: true, name };
 }

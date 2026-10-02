@@ -1,8 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { Meeting } from "@/app/lib/ticketcenter/meetings";
 import {
@@ -23,6 +21,7 @@ import NewTicketForm from "./NewTicketForm";
 import LeadUnlock from "./LeadUnlock";
 import BacklogModal from "./BacklogModal";
 import MeetingsSection from "./MeetingsSection";
+import TicketCenterHeader from "./TicketCenterHeader";
 
 export default function Board({
   initialTickets,
@@ -259,26 +258,17 @@ export default function Board({
   return (
     <main className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6">
       {/* Header */}
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <Link href="/" aria-label="Artrium home" className="shrink-0">
-            <Image src="/newLogo.svg" alt="Artrium" width={151} height={26} priority className="h-[26px] w-auto" />
-          </Link>
-          <span aria-hidden className="h-6 w-px bg-[#3F3A36]/25" />
-          <h1 className="text-xl font-semibold sm:text-2xl">Ticket Center</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {lead && (
-            <button
-              onClick={() => setShowNewForm(true)}
-              className="border border-[#3F3A36] bg-[#3F3A36] px-3 py-1 text-sm font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85"
-            >
-              + New ticket
-            </button>
-          )}
-          <LeadUnlock lead={lead} onUnlock={setLead} onLock={() => setLead(null)} />
-        </div>
-      </header>
+      <TicketCenterHeader active="general">
+        {lead && (
+          <button
+            onClick={() => setShowNewForm(true)}
+            className="border border-[#3F3A36] bg-[#3F3A36] px-3 py-1 text-sm font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85"
+          >
+            + New ticket
+          </button>
+        )}
+        <LeadUnlock lead={lead} onUnlock={setLead} onLock={() => setLead(null)} />
+      </TicketCenterHeader>
 
       {/* Project tabs */}
       <nav className="mt-5 flex gap-2 overflow-x-auto pb-1">

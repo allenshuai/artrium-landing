@@ -21,7 +21,8 @@ const CACHE_TTL_MS = 20_000;
 
 let sheetsClient: sheets_v4.Sheets | null = null;
 
-function getSheets(): sheets_v4.Sheets {
+/** Shared, lazily-built Sheets client (also used by outreach-sheets.ts). */
+export function getSheets(): sheets_v4.Sheets {
   if (sheetsClient) return sheetsClient;
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_PRIVATE_KEY;
