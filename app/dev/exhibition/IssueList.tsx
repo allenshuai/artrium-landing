@@ -1,5 +1,12 @@
 import { isParseIssue } from "@/app/lib/exhibition-map/schema";
 
+const LEVELS = {
+  error: { label: "Error", color: "#C0392B" },
+  warning: { label: "Warning", color: "#D98C1F" },
+  // Not a finding: a note about the list, such as a truncation on save.
+  info: { label: "Note", color: "rgba(63, 58, 54, 0.35)" },
+} as const;
+
 // Presentational only, no hooks, so the client parser page and the server
 // detail page both render issues the same way. Stored issues are untrusted: a
 // document saved before they were validated can hold anything, so malformed
@@ -17,9 +24,9 @@ export default function IssueList({ title, issues }: { title: string; issues: re
           <li
             key={`${issue.code}-${i}`}
             className="border-l-2 pl-3 text-sm"
-            style={{ borderColor: issue.level === "error" ? "#C0392B" : "#D98C1F" }}
+            style={{ borderColor: LEVELS[issue.level].color }}
           >
-            <span className="font-medium">{issue.level === "error" ? "Error" : "Warning"}</span>
+            <span className="font-medium">{LEVELS[issue.level].label}</span>
             <span className="text-[#3F3A36]/50"> · {issue.code}</span>
             {issue.object && <span className="text-[#3F3A36]/50"> · {issue.object}</span>}
             <p className="text-[#3F3A36]/75">{issue.message}</p>

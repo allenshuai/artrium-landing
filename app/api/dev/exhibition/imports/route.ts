@@ -33,10 +33,11 @@ export async function POST(req: Request) {
 
   // Warnings are expected on a partial import and must not block saving. The
   // blocking checks live in saveImport, against the one schema: the map through
-  // validateMap, and the issue list (absent means none) through isIssueList,
-  // since the hub reads every stored list back.
+  // validateMap, and the issue list (absent means none) through issuesToStore,
+  // since the hub reads every stored list back. A list that is merely long is
+  // truncated, and { droppedIssues } says by how much.
   try {
-    return NextResponse.json({ id: await saveImport(map, errors ?? []) }, { status: 201 });
+    return NextResponse.json(await saveImport(map, errors ?? []), { status: 201 });
   } catch (e) {
     // A misconfigured store is not the caller's fault, so it must not look like
     // a rejected document.

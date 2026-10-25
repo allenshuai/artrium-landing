@@ -1,15 +1,10 @@
 import "server-only";
 
 import { get, list, put } from "@vercel/blob";
-import {
-  hasBlockingError,
-  isIssueList,
-  MAX_ISSUES,
-  validateMap,
-  type ExhibitionMap,
-} from "../../exhibition-map/schema";
+import { hasBlockingError, validateMap, type ExhibitionMap } from "../../exhibition-map/schema";
 import {
   asStoredImport,
+  issuesToStore,
   isValidImportId,
   newImportId,
   summarize,
@@ -187,18 +182,21 @@ async function blobSave(doc: StoredImport): Promise<void> {
 /**
  * Persists a parse result. Revalidates through the one schema first: with
  * client-side parsing, a posted document is untrusted no matter who posted it.
- * That covers the issue list too, which every hub listing reads back.
+ * That covers the issue list too, which every hub listing reads back. A list
+ * over MAX_ISSUES is truncated, not refused (issuesToStore); `droppedIssues`
+ * says how many were left out, so the parser page can tell the user.
  */
-export async function saveImport(map: unknown, errors: unknown): Promise<string> {
+export async function saveImport(map: unknown, errors: unknown): Promise<{ id: string; droppedIssues: number }> {
   const issues = validateMap(map);
   if (hasBlockingError(issues)) {
     throw new StorageError(
       `Refusing to save a malformed map: ${issues.map((i) => i.code).join(", ")}`
     );
   }
-  if (!isIssueList(errors)) {
+  const stored = issuesToStore(errors);
+  if (!stored) {
     throw new StorageError(
-      `errors must be an array of at most ${MAX_ISSUES} issues, each { level: "error" | "warning", code, message, object? }.`
+      `errors must be an array of issues, each { level: "error" | "warning" | "info", code, message, object? }.`
     );
   }
 
@@ -207,14 +205,11 @@ export async function saveImport(map: unknown, errors: unknown): Promise<string>
     id,
     savedAt: new Date().toISOString(),
     map: { ...(map as ExhibitionMap), id },
-    // Only the ParseIssue fields are kept, so the list cannot carry anything else.
-    errors: errors.map(({ level, code, message, object }) =>
-      object === undefined ? { level, code, message } : { level, code, message, object }
-    ),
+    errors: stored.issues,
   };
 
   await (localStoreActive() ? localSave(doc) : blobSave(doc));
-  return id;
+  return { id, droppedIssues: stored.dropped };
 }
 
 /** The import, or null when there is none (or it is not readable). Store failures throw StorageError("unavailable"). */

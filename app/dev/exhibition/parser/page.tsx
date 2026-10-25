@@ -6,6 +6,7 @@ import { GlbFormatError, glbJsonChunkRange, parseGlb } from "@/app/lib/dev/exhib
 import {
   ASSET_ORIGIN,
   isAssetUrl,
+  MAX_ISSUES,
   type ExhibitionMap,
   type MinimapVariant,
   type ParseIssue,
@@ -36,7 +37,8 @@ const EMPTY: State = { map: null, issues: [], serverIssues: null, note: null, er
 
 export default function ParserPage() {
   const [state, setState] = useState<State>(EMPTY);
-  const [saved, setSaved] = useState<string | null>(null);
+  // The saved id, and how many issues the server left out of the stored list.
+  const [saved, setSaved] = useState<{ id: string; droppedIssues: number } | null>(null);
   const [assetUrl, setAssetUrl] = useState("");
   const [minimapImage, setMinimapImage] = useState<
     (ChosenImage & { url: string; variant: MinimapVariant }) | null
@@ -161,7 +163,7 @@ export default function ParserPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? `Save failed (${res.status}).`);
-      setSaved(data.id as string);
+      setSaved({ id: data.id as string, droppedIssues: typeof data.droppedIssues === "number" ? data.droppedIssues : 0 });
     } catch (e) {
       setSaveError(e instanceof Error ? e.message : "Save failed.");
     }
@@ -297,9 +299,16 @@ export default function ParserPage() {
           {saved && (
             <p className="mt-2 text-sm">
               Saved as{" "}
-              <Link href={`/dev/exhibition/${saved}`} className="font-mono underline underline-offset-4">
-                {saved}
+              <Link href={`/dev/exhibition/${saved.id}`} className="font-mono underline underline-offset-4">
+                {saved.id}
               </Link>
+              {saved.droppedIssues > 0 && (
+                <span className="mt-1 block text-[#D98C1F]">
+                  {saved.droppedIssues.toLocaleString()} of {state.issues.length.toLocaleString()} issues were not
+                  stored: an import keeps at most {MAX_ISSUES}, errors first, and its list ends with a note saying
+                  so. The full list is still shown above.
+                </span>
+              )}
             </p>
           )}
           {saveError && <p className="mt-2 border-l-2 border-[#C0392B] pl-3 text-sm text-[#C0392B]">{saveError}</p>}

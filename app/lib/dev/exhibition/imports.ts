@@ -1,7 +1,7 @@
 // Dev-portal persistence types. The saved-import envelope, its hub summary, and
 // the ids it is filed under. The map document inside it is the shared schema.
 
-import { isParseIssue, type ExhibitionMap, type ParseIssue } from "../../exhibition-map/schema";
+import { isParseIssue, MAX_ISSUES, type ExhibitionMap, type ParseIssue } from "../../exhibition-map/schema";
 
 /**
  * A saved parse. Keeps the issues found at import time alongside the map, so the
@@ -49,6 +49,51 @@ export function asStoredImport(value: unknown): StoredImport | null {
   }
   if (![map.rooms, map.artworks, map.spawns, map.walls].every(Array.isArray)) return null;
   return { ...(value as StoredImport), errors: Array.isArray(value.errors) ? value.errors : [] };
+}
+
+/** What saveImport stores of a posted issue list, and how many issues it left out. */
+export type IssuesToStore = { issues: ParseIssue[]; dropped: number };
+
+const TRUNCATION_ORDER: readonly ParseIssue["level"][] = ["error", "warning", "info"];
+
+/**
+ * A posted issue list as it is stored, or null when it is not an array of
+ * well-formed issues. Only the ParseIssue fields are kept, so an entry cannot
+ * carry anything else into storage.
+ *
+ * A list longer than MAX_ISSUES is truncated rather than refused: the parser
+ * page posts every issue it found, and a clean map with hundreds of warnings
+ * must still save. Errors are kept ahead of warnings, since they are what
+ * explains a partial import, and otherwise the posted order stands. The last
+ * slot is an "info" issue saying how many were left out, so the stored list
+ * never holds more than MAX_ISSUES.
+ */
+export function issuesToStore(value: unknown): IssuesToStore | null {
+  if (!Array.isArray(value) || !value.every(isParseIssue)) return null;
+  const all: ParseIssue[] = value.map(({ level, code, message, object }) =>
+    object === undefined ? { level, code, message } : { level, code, message, object }
+  );
+  if (all.length <= MAX_ISSUES) return { issues: all, dropped: 0 };
+
+  const room = MAX_ISSUES - 1;
+  const keep = new Set<number>();
+  for (const level of TRUNCATION_ORDER) {
+    all.forEach((issue, i) => {
+      if (keep.size < room && issue.level === level) keep.add(i);
+    });
+  }
+  const kept = all.filter((_, i) => keep.has(i));
+  const left = all.filter((_, i) => !keep.has(i));
+  const count = (level: ParseIssue["level"], word: string) => {
+    const n = left.filter((i) => i.level === level).length;
+    return `${n} ${word}${n === 1 ? "" : "s"}`;
+  };
+  kept.push({
+    level: "info",
+    code: "issues.truncated",
+    message: `${left.length} more issues not stored (${count("error", "error")}, ${count("warning", "warning")}): an import keeps at most ${MAX_ISSUES}. Parse the file again to see them all.`,
+  });
+  return { issues: kept, dropped: left.length };
 }
 
 export function summarize(stored: StoredImport): ImportSummary {

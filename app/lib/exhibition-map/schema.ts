@@ -56,7 +56,11 @@ export type ExhibitionMap = {
 };
 
 export type ParseIssue = {
-  level: "error" | "warning";
+  /**
+   * "info" is never a parse finding. It records something about the list
+   * itself, such as the note saveImport adds when it truncates one.
+   */
+  level: "error" | "warning" | "info";
   code: string;
   message: string;
   /** The offending object name, when one applies. */
@@ -65,10 +69,13 @@ export type ParseIssue = {
 
 export type ParseResult = { map: ExhibitionMap; errors: ParseIssue[] };
 
-/** Most issues one import may carry. A real parse reports tens at worst. */
+/**
+ * Most issues one stored import carries. A real parse reports tens at worst; a
+ * longer list is truncated on save (issuesToStore in the dev portal's imports.ts).
+ */
 export const MAX_ISSUES = 500;
 
-const ISSUE_LEVELS: readonly string[] = ["error", "warning"];
+const ISSUE_LEVELS: readonly string[] = ["error", "warning", "info"];
 
 /** A well-formed ParseIssue. Issues arrive from the browser and from storage, so neither is trusted. */
 export function isParseIssue(value: unknown): value is ParseIssue {
@@ -80,11 +87,6 @@ export function isParseIssue(value: unknown): value is ParseIssue {
     typeof i.message === "string" &&
     (i.object === undefined || typeof i.object === "string")
   );
-}
-
-/** A submitted issue list: an array of at most MAX_ISSUES well-formed issues. */
-export function isIssueList(value: unknown): value is ParseIssue[] {
-  return Array.isArray(value) && value.length <= MAX_ISSUES && value.every(isParseIssue);
 }
 
 // ---------------------------------------------------------------------------

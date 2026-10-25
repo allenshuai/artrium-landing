@@ -10,13 +10,15 @@ import test from "node:test";
 import { glbJsonChunkRange, GlbFormatError, MAX_DEPTH, MAX_NODES, parseGlb } from "./parseGlb";
 import { AssetFetchError, MAX_JSON_CHUNK, readRemoteGlbHead, type FetchLike } from "./remoteGlb";
 import {
-  isIssueList,
+  isParseIssue,
   MAX_ISSUES,
   PARSER_VERSION,
   validateMap,
+  type ParseIssue,
 } from "../../exhibition-map/schema";
 import {
   RESERVED_IDS,
+  issuesToStore,
   isValidImportId,
   newImportId,
   summarize,
@@ -765,13 +767,14 @@ test("only https URLs on the asset host are ever fetched", async () => {
 
 // --- stored issues ----------------------------------------------------------
 
-test("a submitted issue list must be well-formed and bounded", () => {
+test("a submitted issue list must be well-formed, and only its issue fields are stored", () => {
   const issue = { level: "warning", code: "bounds.not-a-mesh", message: "No mesh.", object: "ExhibitionBounds" };
-  assert.equal(isIssueList([]), true);
-  assert.equal(isIssueList([issue, { level: "error", code: "spawn.missing-main", message: "No spawn." }]), true);
-  assert.equal(isIssueList(Array.from({ length: MAX_ISSUES }, () => issue)), true);
+  assert.deepEqual(issuesToStore([]), { issues: [], dropped: 0 });
+  const two = [issue, { level: "error", code: "spawn.missing-main", message: "No spawn." }];
+  assert.deepEqual(issuesToStore(two), { issues: two, dropped: 0 });
+  assert.deepEqual(issuesToStore([{ ...issue, extra: "<script>" }])?.issues, [issue], "extra fields are dropped");
+  assert.equal(issuesToStore(Array.from({ length: MAX_ISSUES }, () => issue))?.dropped, 0, "at the cap");
 
-  assert.equal(isIssueList(Array.from({ length: MAX_ISSUES + 1 }, () => issue)), false, "over the cap");
   for (const bad of [
     null,
     42,
@@ -782,9 +785,49 @@ test("a submitted issue list must be well-formed and bounded", () => {
     { ...issue, object: { name: "x" } },
     { ...issue, object: null },
   ]) {
-    assert.equal(isIssueList([bad]), false, JSON.stringify(bad));
+    assert.equal(issuesToStore([bad]), null, JSON.stringify(bad));
   }
-  assert.equal(isIssueList({ 0: issue, length: 1 }), false, "array-like is not an array");
+  assert.equal(issuesToStore({ 0: issue, length: 1 }), null, "array-like is not an array");
+  assert.equal(issuesToStore("[]"), null);
+  // A malformed entry past the cap is still a malformed list.
+  assert.equal(issuesToStore([...Array.from({ length: MAX_ISSUES + 5 }, () => issue), null]), null);
+});
+
+test("a list over the cap is truncated on save, errors first, with a note saying so", () => {
+  const warning = (n: number): ParseIssue => ({ level: "warning", code: "name.suspect-duplicate-suffix", message: `w${n}` });
+  const error = (n: number): ParseIssue => ({ level: "error", code: "spawn.missing-main", message: `e${n}` });
+
+  // A clean map with 600 warnings used to be refused outright.
+  const warnings = Array.from({ length: 600 }, (_, n) => warning(n));
+  const stored = issuesToStore(warnings)!;
+  assert.equal(stored.issues.length, MAX_ISSUES, "the stored list never exceeds the cap");
+  assert.ok(stored.issues.every(isParseIssue));
+  assert.equal(stored.dropped, 600 - (MAX_ISSUES - 1));
+  assert.deepEqual(stored.issues.slice(0, MAX_ISSUES - 1), warnings.slice(0, MAX_ISSUES - 1), "the first ones, in order");
+  const note = stored.issues[MAX_ISSUES - 1];
+  assert.equal(note.level, "info");
+  assert.equal(note.code, "issues.truncated");
+  assert.match(note.message, /^101 more issues not stored \(0 errors, 101 warnings\)/);
+
+  // Errors posted after the warnings are kept, in their posted order among the rest.
+  const mixed = [...warnings, error(1), error(2)];
+  const kept = issuesToStore(mixed)!;
+  assert.equal(kept.issues.length, MAX_ISSUES);
+  assert.equal(kept.dropped, mixed.length - (MAX_ISSUES - 1));
+  assert.deepEqual(kept.issues.slice(-3, -1).map((i) => i.message), ["e1", "e2"]);
+  assert.equal(kept.issues.filter((i) => i.level === "error").length, 2);
+  assert.equal(kept.issues[0].message, "w0");
+  assert.match(kept.issues[MAX_ISSUES - 1].message, /^103 more issues not stored \(0 errors, 103 warnings\)/);
+
+  // More errors than fit: the note counts the ones left out by level.
+  const flood = issuesToStore([...Array.from({ length: 520 }, (_, n) => error(n)), warning(0)])!;
+  assert.equal(flood.issues.filter((i) => i.level === "error").length, MAX_ISSUES - 1);
+  assert.match(flood.issues[MAX_ISSUES - 1].message, /^22 more issues not stored \(21 errors, 1 warning\)/);
+
+  // The hub counts only errors and warnings, so the note does not inflate either.
+  const { map } = parseGlb({ bytes: glb([{ name: "Spawn_Main" }]) });
+  const summary = summarize({ id: "abcdef1234567890", savedAt: "2026-09-23T00:00:00.000Z", map, errors: stored.issues });
+  assert.deepEqual([summary.errorCount, summary.warningCount], [0, MAX_ISSUES - 1]);
 });
 
 test("a malformed stored issue is skipped, not thrown on, when summarising", () => {
