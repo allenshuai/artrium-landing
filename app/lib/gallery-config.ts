@@ -5,15 +5,22 @@
 // so no client component imports this module; GalleryViewer keeps its own Draco
 // decoder path for that reason.
 
+/** A variable's value trimmed, with blank treated as unset. */
+const nonBlank = (value: string | undefined): string | undefined => value?.trim() || undefined;
+
 /**
  * The unlisted gallery route's slug, or null when none is configured, in which
  * case the route 404s. There is deliberately no default in source. Rotate it by
  * changing GALLERY_ROUTE_SLUG (no code change needed). The public name is read
  * only as a deprecated fallback until GALLERY_ROUTE_SLUG is set on Vercel.
+ *
+ * A blank value counts as unset for both names, so the empty
+ * `GALLERY_ROUTE_SLUG=` line copied from .env.example does not mask the
+ * fallback. Each name is spelled out in full: Next.js inlines a NEXT_PUBLIC_
+ * variable only where it is read literally.
  */
 export function galleryRouteSlug(): string | null {
-  const slug = (process.env.GALLERY_ROUTE_SLUG ?? process.env.NEXT_PUBLIC_GALLERY_ROUTE_SLUG)?.trim();
-  return slug || null;
+  return nonBlank(process.env.GALLERY_ROUTE_SLUG) ?? nonBlank(process.env.NEXT_PUBLIC_GALLERY_ROUTE_SLUG) ?? null;
 }
 
 /** The published map the gallery route serves, from content/exhibitions/<id>.json. */

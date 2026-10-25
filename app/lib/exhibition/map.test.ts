@@ -165,8 +165,18 @@ test("the gallery slug comes from the server-only variable, with no default in s
     set("GALLERY_ROUTE_SLUG", " server-slug ");
     assert.equal(galleryRouteSlug(), "server-slug");
 
-    // A blank value is not a slug: "/exhibition/" must never open the gallery.
-    set("GALLERY_ROUTE_SLUG", "   ");
+    // A blank value counts as unset, so the empty `GALLERY_ROUTE_SLUG=` line
+    // from .env.example, copied into .env.local, does not mask the fallback.
+    for (const blank of ["", "   ", "\n"]) {
+      set("GALLERY_ROUTE_SLUG", blank);
+      assert.equal(galleryRouteSlug(), "legacy-slug", `GALLERY_ROUTE_SLUG=${JSON.stringify(blank)}`);
+    }
+
+    // Blank everywhere is not a slug: "/exhibition/" must never open the gallery.
+    set("GALLERY_ROUTE_SLUG", "");
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", "   ");
+    assert.equal(galleryRouteSlug(), null);
+    set("GALLERY_ROUTE_SLUG", undefined);
     assert.equal(galleryRouteSlug(), null);
   } finally {
     set("GALLERY_ROUTE_SLUG", saved.slug);
