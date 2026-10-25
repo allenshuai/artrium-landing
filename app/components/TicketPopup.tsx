@@ -2,20 +2,32 @@
 
 import html2canvas from "html2canvas";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 const MOBILE_BREAKPOINT_PX = 768;
+const SMALL_SCREEN_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
 
+let smallScreenQuery: MediaQueryList | null = null;
+
+/** One MediaQueryList for the page, created on the first client read. */
+function getSmallScreenQuery(): MediaQueryList {
+  smallScreenQuery ??= window.matchMedia(SMALL_SCREEN_QUERY);
+  return smallScreenQuery;
+}
+
+function subscribeToSmallScreen(onChange: () => void) {
+  const mq = getSmallScreenQuery();
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+/** False on the server and during hydration, then follows the media query. */
 function useIsSmallScreen() {
-  const [isSmall, setIsSmall] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
-    setIsSmall(mq.matches);
-    const listener = () => setIsSmall(mq.matches);
-    mq.addEventListener("change", listener);
-    return () => mq.removeEventListener("change", listener);
-  }, []);
-  return isSmall;
+  return useSyncExternalStore(
+    subscribeToSmallScreen,
+    () => getSmallScreenQuery().matches,
+    () => false
+  );
 }
 
 function isValidEmail(value: string): boolean {
@@ -44,6 +56,30 @@ function formatTodayShort(date: Date): string {
   return `${m}/${d}/${y}`;
 }
 
+function subscribeNever() {
+  return () => {};
+}
+
+/** Local midnight today, in ms: a snapshot that only changes when the day does. */
+function readStartOfToday(): number {
+  return new Date().setHours(0, 0, 0, 0);
+}
+
+/**
+ * Today's date in both formats, from one snapshot so they always agree.
+ * Client only: the server and hydration render "".
+ */
+function useToday(): { long: string; short: string } {
+  const startOfToday = useSyncExternalStore<number | null>(
+    subscribeNever,
+    readStartOfToday,
+    () => null
+  );
+  if (startOfToday === null) return { long: "", short: "" };
+  const today = new Date(startOfToday);
+  return { long: formatTodayLong(today), short: formatTodayShort(today) };
+}
+
 export function TicketPopup({
   open,
   onClose,
@@ -55,8 +91,7 @@ export function TicketPopup({
   const [submitHovered, setSubmitHovered] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<null | "success" | "invalid" | "error">(null);
   const [submitting, setSubmitting] = useState(false);
-  const [todayLong, setTodayLong] = useState("");
-  const [todayShort, setTodayShort] = useState("");
+  const { long: todayLong, short: todayShort } = useToday();
   const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
   const ticketDownloadRef = useRef<HTMLDivElement>(null);
@@ -80,15 +115,14 @@ export function TicketPopup({
       .catch((err) => console.error("Ticket capture failed:", err));
   }, [submittedData]);
 
-  useEffect(() => {
-    const now = new Date();
-    setTodayLong(formatTodayLong(now));
-    setTodayShort(formatTodayShort(now));
-  }, []);
-  useEffect(() => {
+  // Opening clears the last submit status; closing drops the submitted ticket.
+  // Adjusted during render rather than in an effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) setSubmitStatus(null);
-    if (!open) setSubmittedData(null);
-  }, [open]);
+    else setSubmittedData(null);
+  }
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;

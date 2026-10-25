@@ -737,7 +737,7 @@ function CommunitySection() {
               className="text-2xl sm:text-3xl font-bold mb-3 leading-[1.3]"
               style={{ color: C.espresso, maxWidth: 560 }}
             >
-              What's your favorite go-to meal before getting into your creative flow?
+              What&apos;s your favorite go-to meal before getting into your creative flow?
             </h3>
             <p className="text-sm leading-relaxed mb-7" style={{ color: C.espresso, opacity: 0.7 }}>
               See how the community lives, works, and thinks — daily, in the app.
@@ -779,7 +779,7 @@ function FooterSection() {
             className="text-base mb-9 mx-auto"
             style={{ color: `rgba(255,248,242,0.65)`, maxWidth: 500, lineHeight: 1.65 }}
           >
-            It's free to join. Find your next collaborator, your next exhibition, or your next corner of studio space — today.
+            It&apos;s free to join. Find your next collaborator, your next exhibition, or your next corner of studio space — today.
           </p>
           <a
             href={LINKS.appStore}

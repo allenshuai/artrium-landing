@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { TraceRect } from "../contexts/TracePositionsContext";
 import { useTracePositions } from "../contexts/TracePositionsContext";
 import { useTicketPopup } from "../contexts/TicketPopupContext";
@@ -95,6 +95,17 @@ const YELLOW_ARCH_OPACITY_AT_REST = 0.8;
 /** Yellow arch opacity when user is dragging or has dragged it (more transparent so grid shows through). */
 const YELLOW_ARCH_OPACITY_WHILE_MOVED = 0.8;
 
+/**
+ * Clock for trace ages before the first animation frame has ticked: the newest
+ * trace was created moments ago, so it stands in for "now" without reading the
+ * wall clock during render.
+ */
+function newestTraceTime(positions: TraceRect[]): number {
+  let newest = 0;
+  for (const t of positions) if (t.createdAt > newest) newest = t.createdAt;
+  return newest;
+}
+
 /** Intersection of trace rect with logo rect, in 0–1 logo-relative coords for mask. */
 function traceHolesInLogo(
   positions: TraceRect[],
@@ -139,7 +150,11 @@ export function ArtriumLogo() {
   const lastMoveAtRef = useRef<number>(0);
   const wordmarkRef = useRef<string | null>(null);
   const allAtStartRef = useRef<number | null>(null);
-  wordmarkRef.current = wordmarkOverride;
+  // Mirror state into refs for the mousemove/rAF/resize handlers. A layout
+  // effect runs in the same commit, before any later event or frame reads it.
+  useLayoutEffect(() => {
+    wordmarkRef.current = wordmarkOverride;
+  }, [wordmarkOverride]);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const tiltRafRef = useRef<number | null>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
@@ -153,7 +168,9 @@ export function ArtriumLogo() {
   const [homePosition, setHomePosition] = useState<{ x: number; y: number } | null>(null);
   const [hasUserDragged, setHasUserDragged] = useState(false);
   const hasUserDraggedRef = useRef(false);
-  hasUserDraggedRef.current = hasUserDragged;
+  useLayoutEffect(() => {
+    hasUserDraggedRef.current = hasUserDragged;
+  }, [hasUserDragged]);
 
   const [drag, setDrag] = useState<{ active: boolean; offsetX: number; offsetY: number }>({
     active: false,
@@ -165,13 +182,12 @@ export function ArtriumLogo() {
   const [revealedPositions, setRevealedPositions] = useState<
     { x: number; y: number; width: number; height: number }[]
   >([]);
-  const lastRevealedRef = useRef<{ x: number; y: number } | null>(null);
+  const [lastRevealed, setLastRevealed] = useState<{ x: number; y: number } | null>(null);
   const fogCanvasRef = useRef<HTMLCanvasElement>(null);
   const rafIdRef = useRef<number | null>(null);
   const [viewportSize, setViewportSize] = useState(
     () => ({ w: 1920, h: 1080 })
   );
-  const [fogDrawnOnce, setFogDrawnOnce] = useState(false);
   const [tick, setTick] = useState(0);
   const tickRafRef = useRef<number | null>(null);
   useEffect(() => {
@@ -194,8 +210,8 @@ export function ArtriumLogo() {
 
   const REVEAL_THROTTLE_PX = 8;
   const archPathForCanvas = useRef<Path2D | null>(null);
-  if (typeof window !== "undefined" && !archPathForCanvas.current) {
-    archPathForCanvas.current = new Path2D(A_ARCH_PATH_FOR_CLIP);
+  if (archPathForCanvas.current == null) {
+    if (typeof window !== "undefined") archPathForCanvas.current = new Path2D(A_ARCH_PATH_FOR_CLIP);
   }
 
   const runOverlayUpdate = useCallback(() => {
@@ -257,12 +273,20 @@ export function ArtriumLogo() {
     };
   }, [updateOverlayRect]);
 
-  // 3D tilt: logo leans toward cursor (gravitational feel). Disabled when ticket popup is open.
-  useEffect(() => {
+  // When the ticket popup opens, level the logo and restore the original wordmark.
+  // Adjusted during render; the two effects below then detach their listeners.
+  const [prevTicketPopupOpen, setPrevTicketPopupOpen] = useState(ticketPopupOpen);
+  if (ticketPopupOpen !== prevTicketPopupOpen) {
+    setPrevTicketPopupOpen(ticketPopupOpen);
     if (ticketPopupOpen) {
       setTilt({ x: 0, y: 0 });
-      return;
+      setWordmarkOverride(null);
     }
+  }
+
+  // 3D tilt: logo leans toward cursor (gravitational feel). Disabled when ticket popup is open.
+  useEffect(() => {
+    if (ticketPopupOpen) return;
     const updateTilt = () => {
       const el = containerRef.current;
       if (!el) return;
@@ -299,7 +323,6 @@ export function ArtriumLogo() {
   // Swap the wordmark while cursor is moving; speed controls frequency. Stop => revert to original logo wordmark.
   useEffect(() => {
     if (ticketPopupOpen) {
-      setWordmarkOverride(null);
       lastMoveRef.current = null;
       return;
     }
@@ -373,22 +396,21 @@ export function ArtriumLogo() {
     };
   }, [ticketPopupOpen]);
 
-  // Add current overlay position to "revealed" only while user is dragging (not on resize/sync)
-  useEffect(() => {
-    if (!BRUSHING_ENABLED || !drag.active || !overlay.mounted || overlay.width <= 0 || overlay.height <= 0)
-      return;
-    const last = lastRevealedRef.current;
-    const dist = last
-      ? Math.hypot(overlay.x - last.x, overlay.y - last.y)
+  // Add current overlay position to "revealed" only while user is dragging (not on resize/sync).
+  // Adjusted during render: once recorded, a position is within the throttle of
+  // lastRevealed, so this settles after a single extra render.
+  if (BRUSHING_ENABLED && drag.active && overlay.mounted && overlay.width > 0 && overlay.height > 0) {
+    const dist = lastRevealed
+      ? Math.hypot(overlay.x - lastRevealed.x, overlay.y - lastRevealed.y)
       : REVEAL_THROTTLE_PX + 1;
     if (dist > REVEAL_THROTTLE_PX) {
-      lastRevealedRef.current = { x: overlay.x, y: overlay.y };
+      setLastRevealed({ x: overlay.x, y: overlay.y });
       setRevealedPositions((prev) => [
         ...prev,
         { x: overlay.x, y: overlay.y, width: overlay.width, height: overlay.height },
       ]);
     }
-  }, [drag.active, overlay.x, overlay.y, overlay.width, overlay.height, overlay.mounted]);
+  }
 
   // Draw fog canvas: cream layer with arch-shaped holes at every revealed (+ current) position
   useEffect(() => {
@@ -396,10 +418,12 @@ export function ArtriumLogo() {
     if (!canvas || !archPathForCanvas.current) return;
     const w = viewportSize.w;
     const h = viewportSize.h;
-    canvas.width = w;
-    canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    // Sizing the canvas sets its width attribute, which drops the CSS cream
+    // background (see the canvas below) now that the bitmap covers the collage.
+    canvas.width = w;
+    canvas.height = h;
     ctx.fillStyle = CREAM;
     ctx.fillRect(0, 0, w, h);
     if (BRUSHING_ENABLED) {
@@ -423,7 +447,6 @@ export function ArtriumLogo() {
       }
       ctx.globalCompositeOperation = "source-over";
     }
-    setFogDrawnOnce(true);
   }, [revealedPositions, overlay.x, overlay.y, overlay.width, overlay.height, overlay.mounted, hasUserDragged, drag.active, viewportSize.w, viewportSize.h]);
 
   const handlePointerDown = useCallback(
@@ -498,7 +521,7 @@ export function ArtriumLogo() {
             overlay.y,
             overlay.width,
             overlay.height,
-            tick || Date.now()
+            tick || newestTraceTime(tracePositions)
           )
         : [],
     [tracePositions, overlay.mounted, overlay.x, overlay.y, overlay.width, overlay.height, tick]
@@ -518,7 +541,7 @@ export function ArtriumLogo() {
 
   return (
     <>
-      {/* Collage: only when brushing enabled; hidden until fog is drawn so it never flashes on load */}
+      {/* Collage: only when brushing enabled; the fog canvas above covers it except where brushed */}
       {BRUSHING_ENABLED && (
         <div
           className="fixed inset-0 z-10"
@@ -526,19 +549,20 @@ export function ArtriumLogo() {
             width: "100vw",
             height: "100vh",
             pointerEvents: "none",
-            opacity: fogDrawnOnce ? 1 : 0,
-            transition: "opacity 0.15s ease-out",
           }}
         >
           <PhotoGridBackground opacity={1} />
         </div>
       )}
-      {/* Fog canvas: solid cream (or holes when brushing); only when brushing so page bg shows when disabled */}
+      {/* Fog canvas: solid cream (or holes when brushing); only when brushing so page bg shows when disabled.
+          Until its first draw (an unsized canvas has no width attribute) a CSS background in the same
+          cream keeps the collage covered, from the server HTML on, so the collage needs no hidden-until-drawn
+          toggle. The background must not outlive that first draw: it would show through the brushed holes. */}
       {BRUSHING_ENABLED && (
         <canvas
           ref={fogCanvasRef}
-          className="fixed left-0 top-0 z-11 pointer-events-none"
-          style={{ width: "100vw", height: "100vh", display: "block" }}
+          className="fixed left-0 top-0 z-11 pointer-events-none [&:not([width])]:bg-(--fog-cream)"
+          style={{ width: "100vw", height: "100vh", display: "block", "--fog-cream": CREAM } as React.CSSProperties}
         />
       )}
       {/* Mask def: holes where trace images overlap logo (objectBoundingBox 0–1) */}

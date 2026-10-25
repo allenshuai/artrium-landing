@@ -1,0 +1,48 @@
+name: ci
+
+# PR pushes run via pull_request only; push is limited to main so each PR push
+# runs once instead of twice.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Never cancel a main run: a second merge must not cut off the first one's
+  # audit and build report.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      # next-env.d.ts is gitignored; without it tsc lacks next/image-types/global
+      # and the route types, so generate it before typechecking.
+      - name: Generate Next types
+        run: npx next typegen
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
+
+      # Needs no env vars: every env read has a default or happens at request time.
+      - name: Build
+        run: npm run build
+      # Blocks on critical only: the remaining highs are the @vercel/blob ->
+      # @vercel/oidc -> @vercel/cli-config -> zod chain, which only clears when
+      # Vercel publishes a fixed @vercel/blob. Raise to --audit-level=high then.
+      - name: Audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=critical

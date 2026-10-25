@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useSyncExternalStore } from "react";
 import { ARCH_IMAGE_SOURCES } from "../lib/arch-images";
 
 /** Deterministic pseudo-random in [0, 1) for stable collage layout. */
@@ -15,14 +15,27 @@ function r2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+type ViewportSize = { width: number; height: number };
+
+/** Used for the server render and for hydration, before the viewport is known. */
+const SERVER_VIEWPORT_SIZE: ViewportSize = { width: 1920, height: 1080 };
+
+let initialViewportSize: ViewportSize | null = null;
+
+/** Measured on the first client read, then kept for the life of the page. */
+function readInitialViewportSize(): ViewportSize {
+  initialViewportSize ??= { width: window.innerWidth, height: window.innerHeight };
+  return initialViewportSize;
+}
+
+/** Never notifies: the collage deliberately ignores resizes. */
+function subscribeNever() {
+  return () => {};
+}
+
 /** Viewport size at first load only – we don't resize the collage on window resize; user can refresh to get a new layout. */
 function useInitialViewportSize() {
-  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
-  useEffect(() => {
-    if (size === null)
-      setSize({ width: window.innerWidth, height: window.innerHeight });
-  }, [size]);
-  return size ?? { width: 1920, height: 1080 };
+  return useSyncExternalStore(subscribeNever, readInitialViewportSize, () => SERVER_VIEWPORT_SIZE);
 }
 
 const COLLAGE_COUNT = 42;

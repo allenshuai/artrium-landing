@@ -38,9 +38,18 @@ export default function TicketDrawer({
   const [savingDue, setSavingDue] = useState(false);
   const [newAssignee, setNewAssignee] = useState("");
 
-  useEffect(() => {
+  // Reset the notes draft when a different ticket is shown. Not when
+  // ticket.notes changes: the board sets it optimistically on save, rolls it
+  // back if the save fails and refetches every minute, and resetting on those
+  // would discard what the lead typed while a save was in flight, or the whole
+  // draft after a failed save.
+  // Adjusting state during render, not in an effect, also skips the one render
+  // that would otherwise show the previous ticket's notes.
+  const [notesFor, setNotesFor] = useState(ticket.number);
+  if (notesFor !== ticket.number) {
+    setNotesFor(ticket.number);
     setNotes(ticket.notes);
-  }, [ticket.number, ticket.notes]);
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

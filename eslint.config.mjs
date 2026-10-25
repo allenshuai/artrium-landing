@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Compiled test output (`npm test`) and the local dev import store.
+    ".test-build/**",
+    ".local-imports/**",
   ]),
 ]);
 
