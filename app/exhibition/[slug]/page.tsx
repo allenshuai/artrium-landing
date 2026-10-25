@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import GalleryViewer from "../GalleryViewer";
-import { GALLERY_EXHIBITION_ID, GALLERY_ROUTE_SLUG, minimapUrlFor, modelUrlFor } from "../../lib/gallery-config";
+import { GALLERY_EXHIBITION_ID, galleryRouteSlug, minimapUrlFor, modelUrlFor } from "../../lib/gallery-config";
 import { getExhibition } from "../../lib/exhibition/map";
 import { REQUIRED_SPAWN_ID } from "../../lib/exhibition-map/schema";
 
@@ -17,8 +17,10 @@ export default async function GalleryPage({
   const { slug } = await params;
 
   // Access and identity are separate questions. The unlisted slug keeps the
-  // route private; the committed map decides which exhibition it shows.
-  if (slug !== GALLERY_ROUTE_SLUG) {
+  // route private; the committed map decides which exhibition it shows. With no
+  // slug configured there is no route at all, rather than a default one.
+  const expected = galleryRouteSlug();
+  if (!expected || slug !== expected) {
     notFound();
   }
 

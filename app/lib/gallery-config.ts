@@ -1,15 +1,23 @@
 // Configuration for the private 3D gallery. Which GLB to load is no longer set
 // here: it belongs to the published map, as that exhibition's `assetUrl`.
+//
+// For server components only. The route slug must never reach a browser bundle,
+// so no client component imports this module; GalleryViewer keeps its own Draco
+// decoder path for that reason.
 
-/** Rotate the unlisted route by changing NEXT_PUBLIC_GALLERY_ROUTE_SLUG (no code changes needed). */
-export const GALLERY_ROUTE_SLUG =
-  process.env.NEXT_PUBLIC_GALLERY_ROUTE_SLUG ?? "test0123456789";
+/**
+ * The unlisted gallery route's slug, or null when none is configured, in which
+ * case the route 404s. There is deliberately no default in source. Rotate it by
+ * changing GALLERY_ROUTE_SLUG (no code change needed). The public name is read
+ * only as a deprecated fallback until GALLERY_ROUTE_SLUG is set on Vercel.
+ */
+export function galleryRouteSlug(): string | null {
+  const slug = (process.env.GALLERY_ROUTE_SLUG ?? process.env.NEXT_PUBLIC_GALLERY_ROUTE_SLUG)?.trim();
+  return slug || null;
+}
 
 /** The published map the gallery route serves, from content/exhibitions/<id>.json. */
 export const GALLERY_EXHIBITION_ID = "standardized-vgallery";
-
-export const DRACO_DECODER_PATH =
-  "https://www.gstatic.com/draco/versioned/decoders/1.5.7/";
 
 /**
  * Production always serves the published URL: the committed map is what ships,

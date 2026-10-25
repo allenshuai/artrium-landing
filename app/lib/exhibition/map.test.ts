@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getExhibition } from "./map";
-import { minimapUrlFor, modelUrlFor, GALLERY_EXHIBITION_ID } from "../gallery-config";
+import { galleryRouteSlug, minimapUrlFor, modelUrlFor, GALLERY_EXHIBITION_ID } from "../gallery-config";
 import { ASSET_ORIGIN, REQUIRED_SPAWN_ID, validateMap } from "../exhibition-map/schema";
 
 // The published map is what visitors get, so the file itself is under test: a
@@ -141,5 +141,35 @@ test("source fields are typed: strings or null, and a non-negative byte count", 
   }
   for (const source of [null, "a.glb", [], undefined]) {
     assert.deepEqual(codes(source), ["map.source"], `source ${JSON.stringify(source)}`);
+  }
+});
+
+test("the gallery slug comes from the server-only variable, with no default in source", () => {
+  const env = process.env as Record<string, string | undefined>;
+  const saved = { slug: env.GALLERY_ROUTE_SLUG, legacy: env.NEXT_PUBLIC_GALLERY_ROUTE_SLUG };
+  const set = (name: string, value: string | undefined) => {
+    if (value === undefined) delete env[name];
+    else env[name] = value;
+  };
+  try {
+    // Unset means no gallery route at all, not a fallback slug.
+    set("GALLERY_ROUTE_SLUG", undefined);
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", undefined);
+    assert.equal(galleryRouteSlug(), null);
+
+    // The deprecated public name still works until Vercel has the new one...
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", "legacy-slug");
+    assert.equal(galleryRouteSlug(), "legacy-slug");
+
+    // ...and the server-only name wins once it is set.
+    set("GALLERY_ROUTE_SLUG", " server-slug ");
+    assert.equal(galleryRouteSlug(), "server-slug");
+
+    // A blank value is not a slug: "/exhibition/" must never open the gallery.
+    set("GALLERY_ROUTE_SLUG", "   ");
+    assert.equal(galleryRouteSlug(), null);
+  } finally {
+    set("GALLERY_ROUTE_SLUG", saved.slug);
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", saved.legacy);
   }
 });
