@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { glbJsonChunkRange, GlbFormatError, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
 import { validateMap, type ParseResult } from "@/app/lib/exhibition-map/schema";
+import { requireDevEx } from "@/app/lib/dev/exhibition/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +65,7 @@ async function parseByUrl(rawUrl: string): Promise<ParseResult> {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireDevEx(); if (denied) return denied;
   let body: { url?: unknown; map?: unknown };
   try {
     body = await req.json();

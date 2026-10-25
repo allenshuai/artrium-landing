@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { createTicket, getTickets } from "@/app/lib/ticketcenter/sheets";
 import { projectsOf } from "@/app/lib/ticketcenter/types";
 import { validateNewTicket } from "@/app/lib/ticketcenter/validate";
-import { errorResponse, requireLead } from "@/app/lib/ticketcenter/route-helpers";
+import { errorResponse, requireLead, requireView } from "@/app/lib/ticketcenter/route-helpers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const denied = await requireView();
+  if (denied) return denied;
   try {
     const tickets = await getTickets();
     return NextResponse.json({

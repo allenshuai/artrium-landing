@@ -3,10 +3,12 @@ import { notFound } from "next/navigation";
 import IssueList from "../IssueList";
 import { getImport } from "@/app/lib/dev/exhibition/storage";
 import { summarize } from "@/app/lib/dev/exhibition/imports";
+import { requireDevExPage } from "@/app/lib/dev/exhibition/route-helpers";
 
 export const dynamic = "force-dynamic";
 
 export default async function ImportDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  await requireDevExPage();
   const { id } = await params;
   const doc = await getImport(id);
   if (!doc) notFound();

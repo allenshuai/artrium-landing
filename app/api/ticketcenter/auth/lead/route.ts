@@ -1,24 +1,20 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import {
   LEAD_COOKIE,
-  VIEW_COOKIE,
   cookieOptions,
   makeLeadToken,
   parseLeads,
-  verifyViewToken,
 } from "@/app/lib/ticketcenter/auth";
 import { allowAttempt, clientKey } from "@/app/lib/security/ratelimit";
 import { timingSafeEqual } from "@/app/lib/security/token";
+import { requireView } from "@/app/lib/ticketcenter/route-helpers";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
-  // Proxy lets /auth/* through, so enforce the view tier here.
-  const store = await cookies();
-  if (!(await verifyViewToken(store.get(VIEW_COOKIE)?.value))) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  // The proxy lets the auth paths through, so enforce the view tier here.
+  const denied = await requireView();
+  if (denied) return denied;
 
   if (!allowAttempt("lead:" + clientKey(req))) {
     return NextResponse.json(

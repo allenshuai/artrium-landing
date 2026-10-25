@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { createMeeting, getMeetings } from "@/app/lib/ticketcenter/sheets";
 import { validateMeeting } from "@/app/lib/ticketcenter/validate";
-import { errorResponse, requireLead } from "@/app/lib/ticketcenter/route-helpers";
+import { errorResponse, requireLead, requireView } from "@/app/lib/ticketcenter/route-helpers";
 import type { MeetingFields } from "@/app/lib/ticketcenter/meetings";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const denied = await requireView();
+  if (denied) return denied;
   try {
     const meetings = await getMeetings();
     return NextResponse.json({ meetings, fetchedAt: new Date().toISOString() });

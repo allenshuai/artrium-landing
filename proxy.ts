@@ -1,44 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { verifyViewToken, VIEW_COOKIE } from "@/app/lib/ticketcenter/auth";
 import { verifyDevExToken, DEV_EX_COOKIE } from "@/app/lib/dev/exhibition/auth";
+import { isAuthPath, isSameOriginWrite, portalFor, type PortalId } from "@/app/lib/security/proxy-rules";
 
-type Portal = {
-  prefixes: string[];
-  authApi: string;
-  login: string;
-  home: string;
-  cookie: string;
-  verify: (token: string | undefined) => Promise<boolean>;
+// The path rules live in proxy-rules.ts; only the cookie and its verifier are
+// bound here. Route handlers and server pages re-check the cookie themselves
+// (requireView / requireDevEx), so this is not the only gate.
+const GATES: Record<PortalId, { cookie: string; verify: (token: string | undefined) => Promise<boolean> }> = {
+  ticketcenter: { cookie: VIEW_COOKIE, verify: verifyViewToken },
+  devex: { cookie: DEV_EX_COOKIE, verify: verifyDevExToken },
 };
-
-// Each portal carries its own cookie and its own login path. Dispatch happens
-// before any token is verified, so one portal's cookie can never satisfy the
-// other's gate and an unauthenticated visitor is never bounced to the wrong
-// login (which would make /dev/exhibition/login unreachable).
-const PORTALS: Portal[] = [
-  {
-    prefixes: ["/ticketcenter", "/api/ticketcenter"],
-    authApi: "/api/ticketcenter/auth",
-    login: "/ticketcenter/login",
-    home: "/ticketcenter",
-    cookie: VIEW_COOKIE,
-    verify: verifyViewToken,
-  },
-  {
-    prefixes: ["/dev/exhibition", "/api/dev/exhibition"],
-    authApi: "/api/dev/exhibition/auth",
-    login: "/dev/exhibition/login",
-    home: "/dev/exhibition",
-    cookie: DEV_EX_COOKIE,
-    verify: verifyDevExToken,
-  },
-];
-
-function portalFor(pathname: string): Portal | undefined {
-  return PORTALS.find((p) =>
-    p.prefixes.some((prefix) => pathname === prefix || pathname.startsWith(prefix + "/"))
-  );
-}
 
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -46,12 +17,16 @@ export default async function proxy(req: NextRequest) {
   const portal = portalFor(pathname);
   if (!portal) return NextResponse.next();
 
-  // Auth endpoints are always reachable (they do their own rate limiting).
-  if (pathname === portal.authApi || pathname.startsWith(portal.authApi + "/")) {
-    return NextResponse.next();
+  // Writes, including logins, must come from this origin.
+  if (!isSameOriginWrite(req.method, req.headers, req.url)) {
+    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
   }
 
-  const authed = await portal.verify(req.cookies.get(portal.cookie)?.value);
+  // Auth endpoints are always reachable (they do their own rate limiting).
+  if (isAuthPath(portal, pathname)) return NextResponse.next();
+
+  const gate = GATES[portal.id];
+  const authed = await gate.verify(req.cookies.get(gate.cookie)?.value);
 
   if (pathname === portal.login) {
     if (authed) return NextResponse.redirect(new URL(portal.home, req.url));
