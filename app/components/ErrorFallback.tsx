@@ -8,7 +8,7 @@ const ESPRESSO = "#3F3A36";
 // Sky, coral, gold: the three doors, as on the map's loading curtain.
 const ARCH_COLORS = ["#A2DEF8", "#F69C9F", "#FBF5AF"];
 
-/** Shared body of the route error boundaries (app/error.tsx, app/map/error.tsx). */
+/** Shared body of the error boundaries (app/global-error.tsx, app/error.tsx, app/map/error.tsx). */
 export function ErrorFallback({
   error,
   retry,
