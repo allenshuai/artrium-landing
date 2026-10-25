@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const lead = await requireLead();
+  const lead = await requireLead(req);
   if (lead instanceof NextResponse) return lead;
 
   const body = await readJsonObject(req);

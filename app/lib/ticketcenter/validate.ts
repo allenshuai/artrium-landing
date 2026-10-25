@@ -27,11 +27,6 @@ export const DESCRIPTION_MAX = 5000;
 export const NAME_MAX = 60;
 export const ASSIGNEES_MAX = 20;
 
-/** A JSON body the routes can read fields from: an object, not null, an array or a scalar. */
-export function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
 export function isValidStatus(s: unknown): s is TicketStatus {
   return typeof s === "string" && (TICKET_STATUSES as readonly string[]).includes(s);
 }

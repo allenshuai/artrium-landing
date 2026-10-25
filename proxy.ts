@@ -1,15 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { verifyViewToken, VIEW_COOKIE } from "@/app/lib/ticketcenter/auth";
-import { verifyDevExToken, DEV_EX_COOKIE } from "@/app/lib/dev/exhibition/auth";
-import { isAuthPath, isSameOriginWrite, portalFor, type PortalId } from "@/app/lib/security/proxy-rules";
+import { assertSameOriginWrite, PORTAL_GUARDS } from "@/app/lib/security/portal-guard";
+import { isAuthPath, portalFor } from "@/app/lib/security/proxy-rules";
 
-// The path rules live in proxy-rules.ts; only the cookie and its verifier are
-// bound here. Route handlers and server pages re-check the cookie themselves
-// (requireView / requireDevEx), so this is not the only gate.
-const GATES: Record<PortalId, { cookie: string; verify: (token: string | undefined) => Promise<boolean> }> = {
-  ticketcenter: { cookie: VIEW_COOKIE, verify: verifyViewToken },
-  devex: { cookie: DEV_EX_COOKIE, verify: verifyDevExToken },
-};
+// The path rules live in proxy-rules.ts and each portal's cookie and verifier in
+// portal-guard.ts. Route handlers and server pages re-check with the same guards
+// (requireView / requireDevEx), and lead writes and the Ticket Center logins
+// re-apply the same-origin rule, so this is not the only gate.
 
 export default async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -18,15 +14,13 @@ export default async function proxy(req: NextRequest) {
   if (!portal) return NextResponse.next();
 
   // Writes, including logins, must come from this origin.
-  if (!isSameOriginWrite(req.method, req.headers, req.url)) {
-    return NextResponse.json({ error: "Cross-site request refused" }, { status: 403 });
-  }
+  const refused = assertSameOriginWrite(req);
+  if (refused) return refused;
 
   // Auth endpoints are always reachable (they do their own rate limiting).
   if (isAuthPath(portal, pathname)) return NextResponse.next();
 
-  const gate = GATES[portal.id];
-  const authed = await gate.verify(req.cookies.get(gate.cookie)?.value);
+  const authed = await PORTAL_GUARDS[portal.id].has(req);
 
   if (pathname === portal.login) {
     if (authed) return NextResponse.redirect(new URL(portal.home, req.url));

@@ -3,7 +3,6 @@ import {
   cleanAssignees,
   isHttpUrl,
   isPlainEmail,
-  isPlainObject,
   isValidAssignees,
   isValidDueDate,
   isValidLink,
@@ -26,14 +25,6 @@ const err = (r: { ok: boolean; error?: string }) => (r.ok ? null : r.error);
 // Real URLs with commas inside them.
 const MAPS = "https://www.google.com/maps/place/x/@42.36,-71.05,17z";
 const ZOOM = "https://zoom.us/j/123?pwd=a,b";
-
-describe("isPlainObject", () => {
-  it("accepts objects only", () => {
-    expect(isPlainObject({})).toBe(true);
-    expect(isPlainObject({ a: 1 })).toBe(true);
-    for (const v of [null, undefined, [], [1], "x", 1, true]) expect(isPlainObject(v)).toBe(false);
-  });
-});
 
 describe("statuses, types and due dates", () => {
   it("isValidStatus", () => {

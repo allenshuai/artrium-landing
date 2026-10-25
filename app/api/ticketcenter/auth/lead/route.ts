@@ -5,6 +5,7 @@ import {
   makeLeadToken,
   parseLeads,
 } from "@/app/lib/ticketcenter/auth";
+import { assertSameOriginWrite } from "@/app/lib/security/portal-guard";
 import { allowAttempt, clientKey } from "@/app/lib/security/ratelimit";
 import { timingSafeEqual } from "@/app/lib/security/token";
 import { readJsonObject, requireView } from "@/app/lib/ticketcenter/route-helpers";
@@ -12,6 +13,10 @@ import { readJsonObject, requireView } from "@/app/lib/ticketcenter/route-helper
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  // The proxy already refuses cross-site writes; this holds without it.
+  const refused = assertSameOriginWrite(req);
+  if (refused) return refused;
+
   // The proxy lets the auth paths through, so enforce the view tier here.
   const denied = await requireView();
   if (denied) return denied;

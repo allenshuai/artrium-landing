@@ -1,30 +1,28 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
 import { NextResponse } from "next/server";
-import { LEAD_COOKIE, VIEW_COOKIE, verifyLeadToken, verifyViewToken } from "./auth";
+import { assertSameOriginWrite, PORTAL_GUARDS } from "@/app/lib/security/portal-guard";
+import { LEAD_COOKIE, verifyLeadToken } from "./auth";
 import { MeetingNotFoundError, TicketNotFoundError } from "./sheets";
 import { OrgExistsError, OrgNotFoundError, OutreachNotConfiguredError } from "./outreach-sheets";
 import { RowMovedError } from "./sheet-rows";
-import { isPlainObject } from "./validate";
+
+export { isPlainObject, readJsonObject } from "@/app/lib/security/json";
 
 // proxy.ts gates the whole portal, but handlers and pages check the view cookie
-// again so that a proxy bypass or a matcher mistake does not expose the Sheets.
+// again, with the same guard, and lead writes re-apply the proxy's same-origin
+// rule, so that a proxy bypass or a matcher mistake does not expose the Sheets.
 
-async function hasView(): Promise<boolean> {
-  const store = await cookies();
-  return verifyViewToken(store.get(VIEW_COOKIE)?.value);
-}
+const view = PORTAL_GUARDS.ticketcenter;
 
 /** Null when the view cookie is valid, otherwise a 401 to return as-is. */
-export async function requireView(): Promise<NextResponse | null> {
-  if (await hasView()) return null;
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export function requireView(): Promise<NextResponse | null> {
+  return view.require();
 }
 
 /** For server pages: redirects to the login unless the view cookie is valid. */
-export async function requireViewPage(): Promise<void> {
-  if (!(await hasView())) redirect("/ticketcenter/login");
+export function requireViewPage(): Promise<void> {
+  return view.requirePage();
 }
 
 /** Returns the unlocked lead's name, or null. */
@@ -33,8 +31,13 @@ export async function currentLead(): Promise<string | null> {
   return verifyLeadToken(store.get(LEAD_COOKIE)?.value);
 }
 
-/** Returns the lead name, or a 401 (no view cookie) / 403 (no lead cookie) to return as-is. */
-export async function requireLead(): Promise<string | NextResponse> {
+/**
+ * Returns the lead name, or a response to return as-is: 403 for a write from
+ * another origin, 401 without the view cookie, 403 without the lead cookie.
+ */
+export async function requireLead(req: Request): Promise<string | NextResponse> {
+  const refused = assertSameOriginWrite(req);
+  if (refused) return refused;
   const denied = await requireView();
   if (denied) return denied;
   const lead = await currentLead();
@@ -42,22 +45,6 @@ export async function requireLead(): Promise<string | NextResponse> {
     return NextResponse.json({ error: "Lead mode required" }, { status: 403 });
   }
   return lead;
-}
-
-/**
- * The request's JSON body when it is an object, otherwise a 400 to return
- * as-is. A body of null, an array or a scalar would otherwise throw on the first
- * field read, outside any try, and surface as a 500.
- */
-export async function readJsonObject(req: Request): Promise<Record<string, unknown> | NextResponse> {
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    body = undefined;
-  }
-  if (isPlainObject(body)) return body;
-  return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 }
 
 export function errorResponse(err: unknown): NextResponse {

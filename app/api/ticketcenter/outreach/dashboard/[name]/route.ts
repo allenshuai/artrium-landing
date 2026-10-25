@@ -6,7 +6,7 @@ import { errorResponse, readJsonObject, requireLead } from "@/app/lib/ticketcent
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: Request, { params }: { params: Promise<{ name: string }> }) {
-  const lead = await requireLead();
+  const lead = await requireLead(req);
   if (lead instanceof NextResponse) return lead;
   const { name } = await params;
 

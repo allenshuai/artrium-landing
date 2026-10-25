@@ -5,8 +5,8 @@ import { errorResponse, requireLead } from "@/app/lib/ticketcenter/route-helpers
 export const dynamic = "force-dynamic";
 
 /** Copies a Directory org onto the Dashboard tab. */
-export async function POST(_req: Request, { params }: { params: Promise<{ name: string }> }) {
-  const lead = await requireLead();
+export async function POST(req: Request, { params }: { params: Promise<{ name: string }> }) {
+  const lead = await requireLead(req);
   if (lead instanceof NextResponse) return lead;
   const { name } = await params;
   try {

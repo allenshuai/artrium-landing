@@ -8,7 +8,7 @@ export async function PATCH(
   req: Request,
   { params }: { params: Promise<{ number: string }> }
 ) {
-  const lead = await requireLead();
+  const lead = await requireLead(req);
   if (lead instanceof NextResponse) return lead;
 
   const { number } = await params;
