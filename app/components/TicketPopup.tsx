@@ -7,8 +7,16 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 const MOBILE_BREAKPOINT_PX = 768;
 const SMALL_SCREEN_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
 
+let smallScreenQuery: MediaQueryList | null = null;
+
+/** One MediaQueryList for the page, created on the first client read. */
+function getSmallScreenQuery(): MediaQueryList {
+  smallScreenQuery ??= window.matchMedia(SMALL_SCREEN_QUERY);
+  return smallScreenQuery;
+}
+
 function subscribeToSmallScreen(onChange: () => void) {
-  const mq = window.matchMedia(SMALL_SCREEN_QUERY);
+  const mq = getSmallScreenQuery();
   mq.addEventListener("change", onChange);
   return () => mq.removeEventListener("change", onChange);
 }
@@ -17,7 +25,7 @@ function subscribeToSmallScreen(onChange: () => void) {
 function useIsSmallScreen() {
   return useSyncExternalStore(
     subscribeToSmallScreen,
-    () => window.matchMedia(SMALL_SCREEN_QUERY).matches,
+    () => getSmallScreenQuery().matches,
     () => false
   );
 }
@@ -52,9 +60,24 @@ function subscribeNever() {
   return () => {};
 }
 
-/** Today's date, formatted on the client only: the server and hydration render "". */
-function useTodayFormatted(format: (date: Date) => string): string {
-  return useSyncExternalStore(subscribeNever, () => format(new Date()), () => "");
+/** Local midnight today, in ms: a snapshot that only changes when the day does. */
+function readStartOfToday(): number {
+  return new Date().setHours(0, 0, 0, 0);
+}
+
+/**
+ * Today's date in both formats, from one snapshot so they always agree.
+ * Client only: the server and hydration render "".
+ */
+function useToday(): { long: string; short: string } {
+  const startOfToday = useSyncExternalStore<number | null>(
+    subscribeNever,
+    readStartOfToday,
+    () => null
+  );
+  if (startOfToday === null) return { long: "", short: "" };
+  const today = new Date(startOfToday);
+  return { long: formatTodayLong(today), short: formatTodayShort(today) };
 }
 
 export function TicketPopup({
@@ -68,8 +91,7 @@ export function TicketPopup({
   const [submitHovered, setSubmitHovered] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<null | "success" | "invalid" | "error">(null);
   const [submitting, setSubmitting] = useState(false);
-  const todayLong = useTodayFormatted(formatTodayLong);
-  const todayShort = useTodayFormatted(formatTodayShort);
+  const { long: todayLong, short: todayShort } = useToday();
   const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
   const ticketDownloadRef = useRef<HTMLDivElement>(null);
