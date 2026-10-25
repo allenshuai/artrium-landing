@@ -7,7 +7,8 @@ import { join } from "node:path";
 const FIXTURES = join(process.cwd(), "app", "lib", "dev", "exhibition", "__fixtures__");
 import test from "node:test";
 
-import { glbJsonChunkRange, GlbFormatError, parseGlb } from "./parseGlb";
+import { glbJsonChunkRange, GlbFormatError, MAX_DEPTH, MAX_NODES, parseGlb } from "./parseGlb";
+import { AssetFetchError, MAX_JSON_CHUNK, readRemoteGlbHead, type FetchLike } from "./remoteGlb";
 import {
   PARSER_VERSION,
   validateMap,
@@ -53,7 +54,11 @@ function glb(
     accessors: [{ min: [-1, -1, -1], max: [1, 1, 1] }],
   };
 
-  let json = JSON.stringify(gltf);
+  return rawGlb(JSON.stringify(gltf));
+}
+
+/** A GLB around any JSON chunk text, well-formed or not. */
+function rawGlb(json: string): ArrayBuffer {
   while (json.length % 4 !== 0) json += " ";
   const jsonBytes = new TextEncoder().encode(json);
 
@@ -464,4 +469,202 @@ test("a published minimap must name a real variant and carry its pixel size", ()
   assert.ok(codes({ ...base, pixelWidth: null, pixelHeight: null }).includes("minimap.pixel-size"));
   // A 2:1 image over a square rectangle would stretch every marker.
   assert.ok(codes({ ...base, pixelWidth: 2000 }).includes("minimap.aspect-mismatch"));
+});
+
+// --- malformed JSON chunks --------------------------------------------------
+// The route answers GlbFormatError with 422 and anything else with 502, so a
+// malformed file must never surface as a TypeError or RangeError.
+
+/** Asserts a GlbFormatError and nothing else: a TypeError must fail the test, not pass it. */
+function assertFormatError(json: string, label: string) {
+  assert.throws(
+    () => parseGlb({ bytes: rawGlb(json) }),
+    (e: unknown) => {
+      assert.ok(e instanceof GlbFormatError, `${label}: expected GlbFormatError, got ${String(e)}`);
+      return true;
+    },
+    label
+  );
+}
+
+test("type-confused glTF JSON is a format error, never a TypeError", () => {
+  const cube = { meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }] };
+  const cases: Record<string, unknown> = {
+    "document is an array": [],
+    "document is null": null,
+    "nodes is an object": { nodes: {} },
+    "nodes is a string": { nodes: "Spawn_Main" },
+    "a node is null": { nodes: [null] },
+    "children is a string": { nodes: [{ name: "Room_main", children: "12" }, { name: "Spawn_Main" }] },
+    "a child index is a string": { nodes: [{ name: "Room_main", children: ["1"] }, { name: "Spawn_Main" }] },
+    "a child index is out of range": { nodes: [{ name: "Room_main", children: [7] }] },
+    "name is a number": { nodes: [{ name: 42 }] },
+    "translation holds a string": { nodes: [{ name: "Spawn_Main", translation: ["1", 0, 0] }] },
+    "rotation is too short": { nodes: [{ name: "Spawn_Main", rotation: [0, 0, 1] }] },
+    "matrix is too short": { nodes: [{ name: "Spawn_Main", matrix: [1, 0, 0, 1] }] },
+    "matrix is not an array": { nodes: [{ name: "Spawn_Main", matrix: "identity" }] },
+    "mesh is a string": { nodes: [{ name: "Room_main", mesh: "0" }], ...cube },
+    "meshes is an object": { nodes: [{ name: "Room_main", mesh: 0 }], meshes: {} },
+    "accessor bounds are strings": {
+      nodes: [{ name: "Room_main", mesh: 0 }],
+      ...cube,
+      accessors: [{ min: "abc", max: "def" }],
+    },
+    "scene is a string": { scene: "0", scenes: [{ nodes: [0] }], nodes: [{ name: "Spawn_Main" }] },
+    "scene nodes is a string": { scenes: [{ nodes: "0" }], nodes: [{ name: "Spawn_Main" }] },
+    "camera xmag is a string": {
+      nodes: [{ name: "Spawn_Main" }, { name: "OrthographicTopCamera", camera: 0 }],
+      cameras: [{ type: "orthographic", orthographic: { xmag: "50", ymag: 50 } }],
+    },
+  };
+  for (const [label, json] of Object.entries(cases)) assertFormatError(JSON.stringify(json), label);
+});
+
+test("an invalid JSON chunk is a format error, without echoing the parser's text", () => {
+  assertFormatError('{"nodes": [', "unterminated");
+  assertFormatError("not json at all", "not json");
+  assert.throws(() => parseGlb({ bytes: rawGlb('{"nodes": [') }), /not valid JSON/);
+});
+
+/** A single chain: node i's only child is node i + 1. */
+function chain(depth: number): string {
+  const nodes = Array.from({ length: depth + 1 }, (_, i) => ({
+    name: i === depth ? "Spawn_Main" : `Group_${i}`,
+    translation: [1, 0, 0],
+    ...(i < depth ? { children: [i + 1] } : {}),
+  }));
+  return JSON.stringify({ scenes: [{ nodes: [0] }], nodes });
+}
+
+test("nesting up to the depth cap composes; past it is a format error, not a stack overflow", () => {
+  // The deepest node the walk accepts sits MAX_DEPTH levels below its root, and
+  // every level adds 1 on x.
+  const { map } = parseGlb({ bytes: rawGlb(chain(MAX_DEPTH)) });
+  assert.equal(map.spawns[0]?.position.x, MAX_DEPTH + 1);
+
+  assertFormatError(chain(MAX_DEPTH + 1), "one level past the cap");
+  // Far deeper than the old recursive walk's call stack could follow.
+  assertFormatError(chain(MAX_NODES - 1), "a chain of every node allowed");
+});
+
+test("a file with more nodes than the cap is a format error", () => {
+  const nodes = Array.from({ length: MAX_NODES + 1 }, () => ({}));
+  assertFormatError(JSON.stringify({ nodes }), "too many nodes");
+});
+
+test("a cycle in the node graph is walked once, not forever", () => {
+  const json = JSON.stringify({
+    scenes: [{ nodes: [0] }],
+    nodes: [{ name: "Room_main", children: [1] }, { name: "Spawn_Main", children: [0] }],
+  });
+  const { map } = parseGlb({ bytes: rawGlb(json) });
+  assert.deepEqual(map.spawns.map((s) => s.id), ["Main"]);
+});
+
+// --- parse by URL -----------------------------------------------------------
+// The route's network rules, exercised through an injected fetch.
+
+const ASSET = "https://assets.artrium.space/Standardized-VGallery.glb";
+
+type Call = { url: string; init: RequestInit };
+
+/** A fake CDN serving `file`, recording every request. `answer` can override a response by call number. */
+function cdn(file: ArrayBuffer, answer?: (call: number, from: number, to: number) => Response | undefined) {
+  const calls: Call[] = [];
+  const fetchImpl: FetchLike = async (url, init) => {
+    calls.push({ url, init });
+    const header = new Headers(init.headers).get("range") ?? "";
+    const [, from, to] = /^bytes=(\d+)-(\d+)$/.exec(header)!.map(Number);
+    const override = answer?.(calls.length, from, to);
+    if (override) return override;
+    return new Response(file.slice(from, to + 1), {
+      status: 206,
+      headers: { "content-range": `bytes ${from}-${Math.min(to, file.byteLength - 1)}/${file.byteLength}` },
+    });
+  };
+  return { calls, fetchImpl };
+}
+
+test("a published asset is read in two range requests, both 206, with redirects refused", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const { calls, fetchImpl } = cdn(file);
+
+  const head = await readRemoteGlbHead(ASSET, fetchImpl);
+  const { length } = glbJsonChunkRange(file);
+  assert.deepEqual(
+    calls.map((c) => new Headers(c.init.headers).get("range")),
+    ["bytes=0-19", `bytes=0-${19 + length}`]
+  );
+  assert.ok(calls.every((c) => c.init.redirect === "error"), "both requests must refuse redirects");
+  assert.equal(head.filename, "Standardized-VGallery.glb");
+  assert.equal(head.totalBytes, file.byteLength);
+
+  const { map, errors } = parseGlb(head);
+  assert.deepEqual(errors, []);
+  assert.equal(map.assetUrl, ASSET);
+});
+
+test("a JSON chunk over the cap is refused before it is requested", async () => {
+  const header = new ArrayBuffer(20);
+  const view = new DataView(header);
+  view.setUint32(0, 0x46546c67, true);
+  view.setUint32(4, 2, true);
+  view.setUint32(12, MAX_JSON_CHUNK + 1, true);
+  view.setUint32(16, 0x4e4f534a, true);
+  const { calls, fetchImpl } = cdn(header);
+
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), GlbFormatError);
+  assert.equal(calls.length, 1, "the JSON chunk must never be fetched");
+});
+
+test("either request answered with anything but 206 is refused", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const whole = () => new Response(file, { status: 200 });
+
+  // The second request is the one that used to accept any 2xx.
+  for (const call of [1, 2]) {
+    const { fetchImpl } = cdn(file, (n) => (n === call ? whole() : undefined));
+    await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), AssetFetchError, `call ${call}`);
+  }
+  const { fetchImpl } = cdn(file, () => new Response("Not Found: bucket internal-assets-prod", { status: 404, statusText: "Not Found" }));
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), (e: Error) => {
+    assert.ok(e instanceof AssetFetchError);
+    assert.equal(e.message, "Asset host answered 404; expected 206 Partial Content.");
+    return true;
+  });
+});
+
+test("a 206 carrying more than the requested range is cut off", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const { fetchImpl } = cdn(file, (n) =>
+    n === 2 ? new Response(new Uint8Array(file.byteLength + 4096), { status: 206 }) : undefined
+  );
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), AssetFetchError);
+});
+
+test("fetch failures, redirects included, come back without their text", async () => {
+  const secret = "connect ECONNREFUSED 10.0.12.7:443";
+  const fetchImpl: FetchLike = async () => {
+    throw new TypeError("fetch failed", { cause: new Error(secret) });
+  };
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), (e: Error) => {
+    assert.ok(e instanceof AssetFetchError);
+    assert.ok(!e.message.includes("10.0.12.7") && !e.message.includes("fetch failed"), e.message);
+    return true;
+  });
+});
+
+test("only https URLs on the asset host are ever fetched", async () => {
+  const { calls, fetchImpl } = cdn(glb([{ name: "Spawn_Main" }]));
+  for (const url of [
+    "http://assets.artrium.space/a.glb",
+    "https://assets.artrium.space:8443/a.glb",
+    "https://evil.example/a.glb",
+    "https://assets.artrium.space.evil.example/a.glb",
+    "https://user:pass@assets.artrium.space/a.glb",
+    "not a url",
+  ]) {
+    await assert.rejects(readRemoteGlbHead(url, fetchImpl), GlbFormatError, url);
+  }
+  assert.equal(calls.length, 0);
 });
