@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import { validCoords } from "@/app/lib/map/coords";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? "";
@@ -106,18 +107,22 @@ function formatSpaceSubtitle(s: Record<string, string>): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function itemsToMapPins(category: string, items: Record<string, any>[], getId: (i: any) => string, getTitle: (i: any) => string, getOrg: (i: any) => string, getSubtitle: (i: any) => string): MapPin[] {
-  return items
-    .filter((i) => i.latitude != null && i.longitude != null)
-    .map((i) => ({
+  if (!Array.isArray(items)) return [];
+  // Drop pins whose coordinates are not finite or out of range: mapbox-gl throws on them.
+  return items.flatMap((i) => {
+    const coords = validCoords(i.latitude, i.longitude);
+    if (!coords) return [];
+    return [{
       id:               `${category}:${getId(i)}`,
       category:         category as FindCat | CommCat,
       title:            getTitle(i),
       organizationName: getOrg(i) ?? "",
       location:         (i.location as string) ?? "",
       subtitle:         getSubtitle(i),
-      latitude:         Number(i.latitude),
-      longitude:        Number(i.longitude),
-    }));
+      latitude:         coords.latitude,
+      longitude:        coords.longitude,
+    }];
+  });
 }
 
 async function loadAllPins(): Promise<MapPin[]> {
@@ -168,6 +173,7 @@ export default function MapClient() {
   const markersRef    = useRef<{ marker: unknown; category: string; pinId: string }[]>([]);
   const hoverModeRef  = useRef(false);
   const hideTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const failedPinsRef = useRef<Set<string>>(new Set());
 
   const [ready,     setReady]     = useState(false);
   const [revealed,  setRevealed]  = useState(false);
@@ -263,9 +269,20 @@ export default function MapClient() {
       setSelected((prev) => (prev?.pin.id === pin.id ? null : { pin, x, y }));
     });
 
-    const marker = new mapboxgl.Marker({ element: wrapper, anchor: "center" })
-      .setLngLat([pin.longitude, pin.latitude])
-      .addTo(map);
+    let marker: unknown;
+    try {
+      marker = new mapboxgl.Marker({ element: wrapper, anchor: "center" })
+        .setLngLat([pin.longitude, pin.latitude])
+        .addTo(map);
+    } catch (err) {
+      // One bad pin must not take the map down. Markers are rebuilt on every
+      // filter change, so each failing pin is logged only the first time.
+      if (!failedPinsRef.current.has(pin.id)) {
+        failedPinsRef.current.add(pin.id);
+        console.warn(`map: skipped pin ${pin.id}`, err);
+      }
+      return;
+    }
 
     markersRef.current.push({ marker, category: pin.category, pinId: pin.id });
   }, []);
