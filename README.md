@@ -12,7 +12,7 @@ Next.js 16 (App Router), React 19, Tailwind 4, deployed on Vercel.
 npm ci
 cp .env.example .env.local   # fill in what you need; everything is optional for the public pages
 npm run dev                  # http://localhost:3000
-npm run lint && npx tsc --noEmit && npm test && npm run build
+npm run lint && npx next typegen && npx tsc --noEmit && npm test && npm run build
 ```
 
 ## Environment
