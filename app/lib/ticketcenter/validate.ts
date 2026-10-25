@@ -97,6 +97,62 @@ export function safeLinks(l: string): string[] {
   return [...new Set(splitLinks(l).filter(isHttpUrl))];
 }
 
+/** An http(s) URL inside free text, ending where splitLinks would end it. */
+const URL_IN_TEXT = /https?:\/\/(?:[^\s,]|,(?!\s|$|https?:\/\/))+/gi;
+
+/** Drops sentence punctuation after a URL, and a ")" or "]" the URL did not open. */
+function trimUrlEnd(url: string): string {
+  const count = (s: string, c: string) => s.split(c).length - 1;
+  let u = url;
+  for (;;) {
+    const last = u[u.length - 1];
+    if (".,;:!?'\"".includes(last)) u = u.slice(0, -1);
+    else if (last === ")" && count(u, "(") < count(u, ")")) u = u.slice(0, -1);
+    else if (last === "]" && count(u, "[") < count(u, "]")) u = u.slice(0, -1);
+    else return u;
+  }
+}
+
+export interface TextPart {
+  text: string;
+  /** Set when this part is an http(s) URL; it is then also `text`. */
+  href?: string;
+}
+
+/**
+ * A cell typed in the Sheet, cut into text and the http(s) URLs inside it, in
+ * order, so the words around a URL ("Instagram: … (DM only)") are kept. Only
+ * parts with `href` may go in an href; they have passed isHttpUrl.
+ */
+export function linkParts(text: string): TextPart[] {
+  const parts: TextPart[] = [];
+  let at = 0;
+  for (const m of text.matchAll(URL_IN_TEXT)) {
+    const url = trimUrlEnd(m[0]);
+    const start = m.index ?? 0;
+    if (!isHttpUrl(url)) continue;
+    if (start > at) parts.push({ text: text.slice(at, start) });
+    parts.push({ text: url, href: url });
+    at = start + url.length;
+  }
+  if (at < text.length) parts.push({ text: text.slice(at) });
+  return parts;
+}
+
+/**
+ * An address that can follow "mailto:" verbatim: letters, digits and ._+- before
+ * the @, dot-separated labels after it. Nothing a mailto URL would read as a
+ * header ("?", "&"), an escape ("%") or a fragment ("#"). The write side checks
+ * emails, but a cell typed in the Sheet is not checked, so anything else is
+ * shown as text rather than linked.
+ */
+const PLAIN_EMAIL =
+  /^[A-Za-z0-9._+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+
+export function isPlainEmail(s: string): boolean {
+  return s.length <= 254 && PLAIN_EMAIL.test(s);
+}
+
 /**
  * Accepts up to 20 names, each non-empty and at most 60 characters once
  * trimmed, with no commas (the Sheet stores them comma-separated).

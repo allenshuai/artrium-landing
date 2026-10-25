@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   cleanAssignees,
   isHttpUrl,
+  isPlainEmail,
   isPlainObject,
   isValidAssignees,
   isValidDueDate,
   isValidLink,
   isValidStatus,
   isValidTypes,
+  linkParts,
   safeLinks,
   splitLinks,
   validateDashboard,
@@ -113,6 +115,68 @@ describe("links", () => {
     expect(safeLinks("javascript:alert(1)")).toEqual([]);
     expect(safeLinks("Instagram")).toEqual([]);
     expect(safeLinks("")).toEqual([]);
+  });
+});
+
+describe("linkParts", () => {
+  const joined = (v: string) => linkParts(v).map((p) => p.text).join("");
+  const hrefs = (v: string) => linkParts(v).flatMap((p) => (p.href ? [p.href] : []));
+
+  it("keeps the text around a URL", () => {
+    const v = "Instagram: https://instagram.com/studio (DM only)";
+    expect(linkParts(v)).toEqual([
+      { text: "Instagram: " },
+      { text: "https://instagram.com/studio", href: "https://instagram.com/studio" },
+      { text: " (DM only)" },
+    ]);
+    expect(joined(v)).toBe(v);
+  });
+
+  it("links every URL in a list, commas inside a URL included", () => {
+    const v = `Join ${ZOOM}, or find us at ${MAPS}.`;
+    expect(hrefs(v)).toEqual([ZOOM, MAPS]);
+    expect(joined(v)).toBe(v);
+    expect(hrefs(`${MAPS},${ZOOM}`)).toEqual([MAPS, ZOOM]);
+  });
+
+  it("leaves trailing punctuation and an unopened bracket as text", () => {
+    expect(hrefs("(see https://a.example/x)")).toEqual(["https://a.example/x"]);
+    expect(hrefs("https://en.wikipedia.org/wiki/Foo_(bar)")).toEqual(["https://en.wikipedia.org/wiki/Foo_(bar)"]);
+    expect(hrefs("https://a.example!")).toEqual(["https://a.example"]);
+    expect(joined("(see https://a.example/x).")).toBe("(see https://a.example/x).");
+  });
+
+  it("never links anything but http(s)", () => {
+    expect(linkParts("Instagram")).toEqual([{ text: "Instagram" }]);
+    expect(hrefs("javascript:alert(1) data:text/html,x https://")).toEqual([]);
+    expect(joined("javascript:alert(1) https://")).toBe("javascript:alert(1) https://");
+    expect(linkParts("")).toEqual([]);
+  });
+});
+
+describe("isPlainEmail", () => {
+  it("accepts ordinary addresses", () => {
+    for (const ok of ["a@b.co", "first.last+tag@studio-a.example.org", "A_B@X.IO"]) expect(isPlainEmail(ok)).toBe(true);
+  });
+
+  it("refuses anything a mailto URL would read as more than an address", () => {
+    for (const bad of [
+      "a@b",
+      "a b@c.co",
+      "a?cc=x@evil.example",
+      "a@b.co?subject=x",
+      "a&b@c.co",
+      "a%40b@c.co",
+      "a#b@c.co",
+      "a@-b.co",
+      "a@b..co",
+      "@b.co",
+      "Allen (allen@b.co)",
+      "",
+      "x".repeat(250) + "@b.co",
+    ]) {
+      expect(isPlainEmail(bad)).toBe(false);
+    }
   });
 });
 

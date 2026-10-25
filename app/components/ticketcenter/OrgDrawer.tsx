@@ -15,7 +15,7 @@ import {
   type Priority,
 } from "@/app/lib/ticketcenter/outreach";
 import { PRIORITY_COLORS, STATUS_COLORS } from "./typeColors";
-import { LinkOrText, OwnerPicker, Pill, TypePicker } from "./OrgPickers";
+import { EmailOrText, LinkOrText, OwnerPicker, Pill, TypePicker } from "./OrgPickers";
 import Avatar from "./Avatar";
 
 const inputCls =
@@ -325,7 +325,7 @@ export default function OrgDrawer({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Contact"><Text value={[dashboard.contactName, dashboard.role].filter(Boolean).join(" · ")} /></Field>
-                    <Field label="Email"><dd className="mt-0.5 break-all">{dashboard.email ? <a href={`mailto:${encodeURIComponent(dashboard.email)}`} className="underline">{dashboard.email}</a> : "—"}</dd></Field>
+                    <Field label="Email"><dd className="mt-0.5 break-all"><EmailOrText value={dashboard.email} /></dd></Field>
                     <Field label="Phone"><Text value={dashboard.phone} /></Field>
                     <Field label="Relationship"><Text value={dashboard.relationship} /></Field>
                     <Field label="Website"><dd className="mt-0.5"><LinkOrText value={dashboard.website} /></dd></Field>
