@@ -90,6 +90,17 @@ function toIndex(v: unknown, what: string): number {
 const optionalIndex = (v: unknown, what: string): number | undefined =>
   v === undefined ? undefined : toIndex(v, what);
 
+/**
+ * An optional array of indices, each checked, returned as is rather than
+ * copied: a children list can hold millions of entries. Whether each index
+ * names an existing node is the walk's business, not this check's.
+ */
+function indexList(v: unknown, what: string): number[] {
+  const list = optionalArray(v, what);
+  for (let k = 0; k < list.length; k++) toIndex(list[k], `${what}[${k}]`);
+  return list as number[];
+}
+
 function optionalString(v: unknown, what: string): string | undefined {
   if (v === undefined) return undefined;
   if (typeof v !== "string") malformed(`${what} must be a string`);
@@ -125,12 +136,13 @@ type Gltf = {
   meshes: unknown[];
   accessors: unknown[];
   cameras: unknown[];
-  /** Root node indices of the default scene. */
+  /** Root node indices of the default scene. Not range-checked: see flatten. */
   roots: number[];
 };
 
 type GltfNode = {
   name: string;
+  /** Not range-checked: see flatten. */
   children: number[];
   mesh?: number;
   camera?: number;
@@ -160,9 +172,7 @@ function sceneRoots(json: Json, nodeCount: number): number[] {
   if (scene === undefined) return all();
   if (!isRecord(scene)) malformed(`scene ${sceneIndex} must be an object`);
   if (scene.nodes === undefined) return all();
-  return optionalArray(scene.nodes, `scene ${sceneIndex} nodes`).map((n, i) =>
-    toIndex(n, `scene ${sceneIndex} nodes[${i}]`)
-  );
+  return indexList(scene.nodes, `scene ${sceneIndex} nodes`);
 }
 
 function readGltf(bytes: ArrayBuffer): Gltf {
@@ -201,7 +211,7 @@ function readNode(gltf: Gltf, i: number): GltfNode {
   const matrix = optionalNumbers(raw.matrix, 16, `${what} matrix`);
   return {
     name: optionalString(raw.name, `${what} name`) ?? "",
-    children: optionalArray(raw.children, `${what} children`).map((c, k) => toIndex(c, `${what} children[${k}]`)),
+    children: indexList(raw.children, `${what} children`),
     mesh: optionalIndex(raw.mesh, `${what} mesh`),
     camera: optionalIndex(raw.camera, `${what} camera`),
     local: matrix
@@ -311,36 +321,98 @@ function union(a: Bounds | null, b: Bounds | null): Bounds | null {
 type FlatNode = { index: number; name: string; world: Mat4; node: GltfNode; parents: string[] };
 
 /**
- * Pre-order walk accumulating world matrices and the ancestor name chain.
+ * References past the end of `nodes` from one referrer: how many, the first few
+ * distinct indices, and whether more distinct ones followed. Fixed size however
+ * many references there are.
+ */
+type Missing = { count: number; sample: number[]; more: boolean };
+
+const MISSING_SAMPLE = 5;
+
+const noMissing = (): Missing => ({ count: 0, sample: [], more: false });
+
+function noteMissing(missing: Missing, index: number): void {
+  missing.count++;
+  if (missing.sample.includes(index)) return;
+  if (missing.sample.length < MISSING_SAMPLE) missing.sample.push(index);
+  else missing.more = true;
+}
+
+function danglingIssue(
+  referrer: string,
+  kind: "root" | "child",
+  missing: Missing,
+  nodeCount: number,
+  object?: string
+): ParseIssue {
+  const what = missing.count === 1 ? `a ${kind}` : `${missing.count} ${kind === "root" ? "roots" : "children"}`;
+  const list = missing.sample.join(", ") + (missing.more ? ", …" : "");
+  return {
+    level: "error",
+    code: "node.dangling-reference",
+    message: `${referrer} lists ${what} past the last node (the file has ${nodeCount} nodes): ${list}. Skipped; re-export the file.`,
+    ...(object ? { object } : {}),
+  };
+}
+
+/**
+ * Pre-order walk accumulating world matrices and the ancestor name chain, in
+ * file order, as the recursive walk did.
  *
  * An explicit stack rather than recursion, so a deep chain stops at MAX_DEPTH
- * with a GlbFormatError instead of overflowing the call stack. Children are
- * pushed in reverse so they are visited in file order, as the recursive walk did.
+ * with a GlbFormatError instead of overflowing the call stack. The stack holds
+ * one frame per level of the current path, each with a cursor into its node's
+ * children, never one entry per child reference: a node that lists the same
+ * child a million times costs a million cursor steps, not a million stack
+ * entries. The walk's memory grows with the node count, not the reference count.
+ *
+ * A root or child index past the end of `nodes` is skipped, as the recursive
+ * walk did, and reported as one error per referrer: the rest of the file still
+ * parses.
  */
-function flatten(gltf: Gltf): FlatNode[] {
+function flatten(gltf: Gltf, issues: ParseIssue[]): FlatNode[] {
+  const nodeCount = gltf.nodes.length;
   const out: FlatNode[] = [];
   const seen = new Set<number>();
-  const stack: { index: number; parentWorld: Mat4; parents: string[] }[] = gltf.roots
-    .map((index) => ({ index, parentWorld: IDENTITY, parents: [] }))
-    .reverse();
+  const stack: { entry: FlatNode; childParents: string[]; next: number; missing: Missing }[] = [];
 
-  while (stack.length > 0) {
-    const { index, parentWorld, parents } = stack.pop()!;
-    if (seen.has(index)) continue; // defensive: a malformed cycle must not hang the parse
+  const visit = (index: number, parentWorld: Mat4, parents: string[]) => {
+    if (seen.has(index)) return; // defensive: a malformed cycle must not hang the parse
     seen.add(index);
     if (parents.length > MAX_DEPTH) {
       throw new GlbFormatError(`Node hierarchy is deeper than ${MAX_DEPTH} levels.`);
     }
-
     const node = readNode(gltf, index);
-    const world = multiply(parentWorld, node.local);
-    out.push({ index, name: node.name, world, node, parents });
+    const entry = { index, name: node.name, world: multiply(parentWorld, node.local), node, parents };
+    out.push(entry);
+    stack.push({ entry, childParents: [...parents, node.name], next: 0, missing: noMissing() });
+  };
 
-    const childParents = [...parents, node.name];
-    for (let k = node.children.length - 1; k >= 0; k--) {
-      stack.push({ index: node.children[k], parentWorld: world, parents: childParents });
+  const missingRoots = noMissing();
+  for (const root of gltf.roots) {
+    if (root >= nodeCount) {
+      noteMissing(missingRoots, root);
+      continue;
+    }
+    visit(root, IDENTITY, []);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      const { entry } = frame;
+      if (frame.next === entry.node.children.length) {
+        stack.pop();
+        if (frame.missing.count > 0) {
+          const label = entry.name ? `Node ${entry.index} ("${entry.name}")` : `Node ${entry.index}`;
+          issues.push(danglingIssue(label, "child", frame.missing, nodeCount, entry.name || undefined));
+        }
+        continue;
+      }
+      const child = entry.node.children[frame.next++];
+      if (child >= nodeCount) noteMissing(frame.missing, child);
+      else visit(child, entry.world, frame.childParents);
     }
   }
+  if (missingRoots.count > 0) issues.push(danglingIssue("The scene", "root", missingRoots, nodeCount));
   return out;
 }
 
@@ -477,8 +549,8 @@ function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): 
 
 export function parseGlb(input: ParseInput): ParseResult {
   const gltf = readGltf(input.bytes);
-  const flat = flatten(gltf);
   const errors: ParseIssue[] = [];
+  const flat = flatten(gltf, errors);
 
   const rooms: Room[] = [];
   const artworks: Artwork[] = [];

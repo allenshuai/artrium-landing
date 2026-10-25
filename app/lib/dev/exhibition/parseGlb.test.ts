@@ -499,7 +499,6 @@ test("type-confused glTF JSON is a format error, never a TypeError", () => {
     "a node is null": { nodes: [null] },
     "children is a string": { nodes: [{ name: "Room_main", children: "12" }, { name: "Spawn_Main" }] },
     "a child index is a string": { nodes: [{ name: "Room_main", children: ["1"] }, { name: "Spawn_Main" }] },
-    "a child index is out of range": { nodes: [{ name: "Room_main", children: [7] }] },
     "name is a number": { nodes: [{ name: 42 }] },
     "translation holds a string": { nodes: [{ name: "Spawn_Main", translation: ["1", 0, 0] }] },
     "rotation is too short": { nodes: [{ name: "Spawn_Main", rotation: [0, 0, 1] }] },
@@ -561,6 +560,60 @@ test("a cycle in the node graph is walked once, not forever", () => {
   });
   const { map } = parseGlb({ bytes: rawGlb(json) });
   assert.deepEqual(map.spawns.map((s) => s.id), ["Main"]);
+});
+
+test("a node listing the same child a million times is walked once, within the caps", () => {
+  // The walk used to push one stack entry per child reference before checking
+  // whether the child had been seen, so this allocated a million entries.
+  const repeats = 1_000_000;
+  const json = JSON.stringify({
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: "Room_main", mesh: 0, children: [...Array<number>(repeats).fill(1), 2] },
+      { name: "Spawn_Main", translation: [3, 0, 0], children: [0] },
+      { name: "Artwork_one" },
+    ],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+    accessors: [{ min: [-1, -1, -1], max: [1, 1, 1] }],
+  });
+  const { map, errors } = parseGlb({ bytes: rawGlb(json) });
+  assert.deepEqual(map.spawns.map((s) => [s.id, s.position.x]), [["Main", 3]]);
+  assert.deepEqual(map.artworks.map((a) => a.id), ["one"], "children after the repeats are still reached");
+  assert.equal(map.artworks[0].roomId, "main");
+  assert.deepEqual(codes(errors), [], "repeats are not an issue");
+});
+
+test("a dangling root or child index is a reported error, and the rest still parses", () => {
+  const json = JSON.stringify({
+    scenes: [{ nodes: [0, 9, 9] }],
+    nodes: [
+      { name: "Room_main", children: [1, 7, 7, 8, 2] },
+      { name: "Spawn_Main" },
+      { name: "Artwork_one" },
+    ],
+  });
+  const { map, errors } = parseGlb({ bytes: rawGlb(json) });
+  assert.deepEqual(map.spawns.map((s) => s.id), ["Main"]);
+  assert.deepEqual(map.artworks.map((a) => a.id), ["one"], "the child after the dangling ones is reached");
+
+  const dangling = errors.filter((e) => e.code === "node.dangling-reference");
+  assert.equal(dangling.length, 2, "one issue per referrer, not per reference");
+  assert.ok(dangling.every((e) => e.level === "error"));
+  const [child, root] = dangling;
+  assert.equal(child.object, "Room_main");
+  assert.match(child.message, /Node 0 \("Room_main"\) lists 3 children past the last node \(the file has 3 nodes\): 7, 8\./);
+  assert.equal(root.object, undefined);
+  assert.match(root.message, /The scene lists 2 roots past the last node \(the file has 3 nodes\): 9\./);
+
+  // The message lists a few distinct indices, then marks that there were more.
+  const many = JSON.stringify({ nodes: [{ name: "Spawn_Main", children: [10, 11, 12, 13, 14, 15, 16] }] });
+  const [overflow] = parseGlb({ bytes: rawGlb(many) }).errors.filter((e) => e.code === "node.dangling-reference");
+  assert.match(overflow.message, /lists 7 children .*: 10, 11, 12, 13, 14, …\./);
+
+  // Nothing left to walk is still a parse with issues, not a throw.
+  const empty = parseGlb({ bytes: rawGlb(JSON.stringify({ scenes: [{ nodes: [4] }], nodes: [{ name: "Spawn_Main" }] })) });
+  assert.deepEqual(codes(empty.errors), ["bounds.unresolved", "node.dangling-reference", "spawn.missing-main"]);
+  assert.match(empty.errors.find((e) => e.code === "node.dangling-reference")!.message, /a root .*: 4\./);
 });
 
 // --- parse by URL -----------------------------------------------------------
