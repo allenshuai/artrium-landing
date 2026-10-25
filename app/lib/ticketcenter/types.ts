@@ -40,7 +40,7 @@ export interface NewTicketInput {
   types: TicketType[];
   project: string;
   status?: TicketStatus;
-  assignedTo?: string;
+  assignedTo?: string[];
   dueDate?: string;
   description?: string;
   link?: string;

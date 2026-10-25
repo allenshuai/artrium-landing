@@ -7,7 +7,7 @@ import {
 } from "@/app/lib/ticketcenter/auth";
 import { allowAttempt, clientKey } from "@/app/lib/security/ratelimit";
 import { timingSafeEqual } from "@/app/lib/security/token";
-import { requireView } from "@/app/lib/ticketcenter/route-helpers";
+import { readJsonObject, requireView } from "@/app/lib/ticketcenter/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -23,15 +23,10 @@ export async function POST(req: Request) {
     );
   }
 
-  let name = "";
-  let passcode = "";
-  try {
-    const body = await req.json();
-    name = typeof body.name === "string" ? body.name.trim() : "";
-    passcode = typeof body.passcode === "string" ? body.passcode : "";
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  const passcode = typeof body.passcode === "string" ? body.passcode : "";
 
   const expected = parseLeads().get(name);
   if (!expected || !timingSafeEqual(passcode, expected)) {

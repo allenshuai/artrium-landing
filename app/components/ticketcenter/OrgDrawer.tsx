@@ -34,6 +34,13 @@ function pickDashboard(d: DashboardOrg): DashboardFields {
 }
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
+/** Only the fields that changed, so an untouched value from the Sheet is never re-validated. */
+function changedFields<T extends object>(next: T, prev: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(next).filter(([k, v]) => !same(v, prev[k as keyof T]))
+  ) as Partial<T>;
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div>
@@ -162,13 +169,13 @@ export default function OrgDrawer({
   async function saveDir() {
     if (!directory || !dir) return;
     setSavingDir(true);
-    await onSaveDirectory(directory.name, dir);
+    await onSaveDirectory(directory.name, changedFields(dir, pickDirectory(directory)));
     setSavingDir(false);
   }
   async function saveDash() {
     if (!dashboard || !dash) return;
     setSavingDash(true);
-    await onSaveDashboard(dashboard.name, dash);
+    await onSaveDashboard(dashboard.name, changedFields(dash, pickDashboard(dashboard)));
     setSavingDash(false);
   }
   async function promote() {
@@ -318,7 +325,7 @@ export default function OrgDrawer({
                 <>
                   <div className="grid grid-cols-2 gap-3">
                     <Field label="Contact"><Text value={[dashboard.contactName, dashboard.role].filter(Boolean).join(" · ")} /></Field>
-                    <Field label="Email"><dd className="mt-0.5 break-all">{dashboard.email ? <a href={`mailto:${dashboard.email}`} className="underline">{dashboard.email}</a> : "—"}</dd></Field>
+                    <Field label="Email"><dd className="mt-0.5 break-all">{dashboard.email ? <a href={`mailto:${encodeURIComponent(dashboard.email)}`} className="underline">{dashboard.email}</a> : "—"}</dd></Field>
                     <Field label="Phone"><Text value={dashboard.phone} /></Field>
                     <Field label="Relationship"><Text value={dashboard.relationship} /></Field>
                     <Field label="Website"><dd className="mt-0.5"><LinkOrText value={dashboard.website} /></dd></Field>

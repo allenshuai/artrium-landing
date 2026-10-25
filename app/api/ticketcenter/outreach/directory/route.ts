@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createDirectoryOrg } from "@/app/lib/ticketcenter/outreach-sheets";
 import { validateDirectory, validateOrgName } from "@/app/lib/ticketcenter/validate";
-import { errorResponse, requireLead } from "@/app/lib/ticketcenter/route-helpers";
+import { errorResponse, readJsonObject, requireLead } from "@/app/lib/ticketcenter/route-helpers";
 import type { DirectoryFields } from "@/app/lib/ticketcenter/outreach";
 
 export const dynamic = "force-dynamic";
@@ -10,12 +10,8 @@ export async function POST(req: Request) {
   const lead = await requireLead();
   if (lead instanceof NextResponse) return lead;
 
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
 
   const name = validateOrgName(body.name);
   if (!name.ok) return NextResponse.json({ error: name.error }, { status: 400 });

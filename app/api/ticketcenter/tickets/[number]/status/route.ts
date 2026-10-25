@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { updateTicketStatus } from "@/app/lib/ticketcenter/sheets";
 import { isValidStatus } from "@/app/lib/ticketcenter/validate";
-import { errorResponse, requireLead } from "@/app/lib/ticketcenter/route-helpers";
+import { errorResponse, readJsonObject, requireLead } from "@/app/lib/ticketcenter/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -14,12 +14,9 @@ export async function PATCH(
 
   const { number } = await params;
 
-  let status: unknown;
-  try {
-    ({ status } = await req.json());
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
+  const { status } = body;
   if (!isValidStatus(status)) {
     return NextResponse.json({ error: "Invalid status" }, { status: 400 });
   }

@@ -6,6 +6,7 @@ import {
 } from "@/app/lib/ticketcenter/auth";
 import { allowAttempt, clientKey } from "@/app/lib/security/ratelimit";
 import { timingSafeEqual } from "@/app/lib/security/token";
+import { readJsonObject } from "@/app/lib/ticketcenter/route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -17,13 +18,9 @@ export async function POST(req: Request) {
     );
   }
 
-  let password = "";
-  try {
-    const body = await req.json();
-    password = typeof body.password === "string" ? body.password : "";
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
+  const password = typeof body.password === "string" ? body.password : "";
 
   const expected = process.env.TICKETCENTER_PASSWORD;
   if (!expected || !timingSafeEqual(password, expected)) {

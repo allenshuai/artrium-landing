@@ -6,6 +6,7 @@ import { LEAD_COOKIE, VIEW_COOKIE, verifyLeadToken, verifyViewToken } from "./au
 import { MeetingNotFoundError, TicketNotFoundError } from "./sheets";
 import { OrgExistsError, OrgNotFoundError, OutreachNotConfiguredError } from "./outreach-sheets";
 import { RowMovedError } from "./sheet-rows";
+import { isPlainObject } from "./validate";
 
 // proxy.ts gates the whole portal, but handlers and pages check the view cookie
 // again so that a proxy bypass or a matcher mistake does not expose the Sheets.
@@ -41,6 +42,22 @@ export async function requireLead(): Promise<string | NextResponse> {
     return NextResponse.json({ error: "Lead mode required" }, { status: 403 });
   }
   return lead;
+}
+
+/**
+ * The request's JSON body when it is an object, otherwise a 400 to return
+ * as-is. A body of null, an array or a scalar would otherwise throw on the first
+ * field read, outside any try, and surface as a 500.
+ */
+export async function readJsonObject(req: Request): Promise<Record<string, unknown> | NextResponse> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    body = undefined;
+  }
+  if (isPlainObject(body)) return body;
+  return NextResponse.json({ error: "Invalid request" }, { status: 400 });
 }
 
 export function errorResponse(err: unknown): NextResponse {

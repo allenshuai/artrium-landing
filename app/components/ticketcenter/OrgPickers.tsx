@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ORG_TYPES } from "@/app/lib/ticketcenter/outreach";
+import { safeLinks } from "@/app/lib/ticketcenter/validate";
 import Avatar from "./Avatar";
 
 const addInputCls =
@@ -156,15 +157,18 @@ export function Pill({ label, color, className = "" }: { label: string; color: s
   );
 }
 
-/** Renders http(s) values as links, anything else ("Instagram", "website") as text. */
+/** Renders the http(s) URLs in a value as links, anything else ("Instagram", "website") as text. */
 export function LinkOrText({ value }: { value: string }) {
   if (!value) return <>—</>;
-  if (/^https?:\/\//i.test(value)) {
-    return (
-      <a href={value} target="_blank" rel="noopener noreferrer" className="break-all underline hover:text-[#3F3A36]/70">
-        {value.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "")}
-      </a>
-    );
-  }
-  return <>{value}</>;
+  const links = safeLinks(value);
+  if (links.length === 0) return <>{value}</>;
+  return (
+    <span className="flex flex-col gap-0.5">
+      {links.map((url) => (
+        <a key={url} href={url} target="_blank" rel="noopener noreferrer" className="break-all underline hover:text-[#3F3A36]/70">
+          {url.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "")}
+        </a>
+      ))}
+    </span>
+  );
 }

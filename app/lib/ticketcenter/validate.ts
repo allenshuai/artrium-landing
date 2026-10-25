@@ -21,6 +21,16 @@ import {
   type Priority,
 } from "./outreach";
 
+export const PROJECT_MAX = 80;
+export const DESCRIPTION_MAX = 5000;
+export const NAME_MAX = 60;
+export const ASSIGNEES_MAX = 20;
+
+/** A JSON body the routes can read fields from: an object, not null, an array or a scalar. */
+export function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
 export function isValidStatus(s: unknown): s is TicketStatus {
   return typeof s === "string" && (TICKET_STATUSES as readonly string[]).includes(s);
 }
@@ -43,29 +53,52 @@ export function isValidDueDate(d: unknown): d is string {
   return !Number.isNaN(new Date(d + "T00:00:00Z").getTime());
 }
 
+export function isHttpUrl(s: string): boolean {
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
 /** Accepts one or more http(s) URLs separated by spaces, commas, or newlines. */
 export function isValidLink(l: unknown): l is string {
   if (typeof l !== "string") return false;
   if (l.trim() === "") return true;
-  return splitLinks(l).every((part) => {
-    try {
-      const u = new URL(part);
-      return u.protocol === "http:" || u.protocol === "https:";
-    } catch {
-      return false;
-    }
-  });
+  return splitLinks(l).every(isHttpUrl);
 }
 
 export function splitLinks(l: string): string[] {
   return l.split(/[\s,]+/).filter(Boolean);
 }
 
-/** Accepts an array of non-empty name strings under 60 chars each, deduped. */
+/**
+ * The distinct parts of a link cell that are http(s) URLs. Cells can be typed
+ * straight into the Sheet, so anything read back goes through this before it
+ * reaches an href.
+ */
+export function safeLinks(l: string): string[] {
+  return [...new Set(splitLinks(l).filter(isHttpUrl))];
+}
+
+/**
+ * Accepts up to 20 names, each non-empty and at most 60 characters once
+ * trimmed, with no commas (the Sheet stores them comma-separated).
+ */
 export function isValidAssignees(a: unknown): a is string[] {
   if (!Array.isArray(a)) return false;
-  if (a.length > 20) return false;
-  return a.every((n) => typeof n === "string" && n.trim().length > 0 && n.length < 60);
+  if (a.length > ASSIGNEES_MAX) return false;
+  return a.every((n) => {
+    if (typeof n !== "string") return false;
+    const t = n.trim();
+    return t.length > 0 && t.length <= NAME_MAX && !t.includes(",");
+  });
+}
+
+/** Trimmed and deduped, for writing. Call after isValidAssignees. */
+export function cleanAssignees(a: string[]): string[] {
+  return [...new Set(a.map((n) => n.trim()))];
 }
 
 /** Validates a create-ticket body. Returns a clean input or an error message. */
@@ -80,6 +113,9 @@ export function validateNewTicket(
 
   const project = typeof body.project === "string" ? body.project.trim() : "";
   if (!project) return { ok: false, error: "Project is required" };
+  if (project.length > PROJECT_MAX) {
+    return { ok: false, error: `Project must be ${PROJECT_MAX} characters or fewer` };
+  }
 
   let status: TicketStatus = "Backlog";
   if (body.status !== undefined && body.status !== "") {
@@ -93,12 +129,20 @@ export function validateNewTicket(
   const link = typeof body.link === "string" ? body.link.trim() : "";
   if (!isValidLink(link)) return { ok: false, error: "Link must be an http(s) URL" };
 
-  const assignedTo = typeof body.assignedTo === "string" ? body.assignedTo.trim() : "";
-  if (status !== "Backlog" && !assignedTo) {
+  // Same shape as PATCH /tickets/[number]/assignees: an array of names.
+  let assignedTo: string[] = [];
+  if (body.assignedTo !== undefined) {
+    if (!isValidAssignees(body.assignedTo)) return { ok: false, error: "Invalid assignees" };
+    assignedTo = cleanAssignees(body.assignedTo);
+  }
+  if (status !== "Backlog" && assignedTo.length === 0) {
     return { ok: false, error: "Assignee is required unless the ticket is in Backlog" };
   }
 
   const description = typeof body.description === "string" ? body.description.trim() : "";
+  if (description.length > DESCRIPTION_MAX) {
+    return { ok: false, error: `Description must be ${DESCRIPTION_MAX} characters or fewer` };
+  }
 
   return {
     ok: true,
@@ -206,6 +250,13 @@ const STRING_CAPS: Record<string, number> = {
   nextAction: 1000,
 };
 
+/** Website and social, when given, must be http(s) URLs (one or more, like a link cell). */
+function checkUrls(f: { website?: string; social?: string }): string | null {
+  if (f.website && !isValidLink(f.website)) return "Website must be an http(s) URL";
+  if (f.social && !isValidLink(f.social)) return "Social must be an http(s) URL";
+  return null;
+}
+
 /**
  * Directory fields from a request body. With `partial`, missing keys stay
  * undefined (PATCH); otherwise city is required and the rest default to blank.
@@ -223,6 +274,8 @@ export function validateDirectory(body: Record<string, unknown>, partial: boolea
     } else if (!partial) out[k] = "";
   }
   if (!partial && !out.city) return { ok: false, error: "City / Area is required" };
+  const badUrl = checkUrls(out);
+  if (badUrl) return { ok: false, error: badUrl };
 
   const types = readList(body.types, "Org types");
   if (typeof types === "string") {
@@ -270,6 +323,8 @@ export function validateDashboard(body: Record<string, unknown>): Ok<Partial<Das
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) {
     return { ok: false, error: "Email doesn't look right" };
   }
+  const badUrl = checkUrls(out);
+  if (badUrl) return { ok: false, error: badUrl };
 
   for (const k of ["firstContact", "lastContact", "nextActionDate"] as const) {
     const v = str(k);

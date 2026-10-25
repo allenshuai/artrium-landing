@@ -2,7 +2,6 @@ import "server-only";
 import { google, type sheets_v4 } from "googleapis";
 import { locateRows, RowMovedError, type Located } from "./sheet-rows";
 import {
-  parseAssignees,
   rowToTicket,
   type NewTicketInput,
   type Ticket,
@@ -231,7 +230,7 @@ export async function createTicket(
     types: input.types,
     project: input.project,
     status,
-    assignedTo: parseAssignees(input.assignedTo ?? ""),
+    assignedTo: input.assignedTo ?? [],
     dueDate: input.dueDate ?? "",
     description: input.description ?? "",
     notes: "",
