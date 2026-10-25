@@ -188,7 +188,12 @@ function unknownKeys(value: unknown, allowed: string[]): string[] {
   return Object.keys(value).filter((k) => !allowed.includes(k));
 }
 
-const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+/** A finite number: NaN and ±Infinity are never a coordinate, size or extent. */
+export const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** A plain object: not null and not an array. */
+export const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
 function isVec3(v: unknown): v is Vec3 {
   const o = v as Vec3 | null;

@@ -17,6 +17,8 @@ import {
   REQUIRED_SPAWN_ID,
   duplicates,
   idFor,
+  isNum,
+  isRecord,
   matchPrefix,
   suspectDuplicateSuffix,
   type Artwork,
@@ -67,9 +69,6 @@ function malformed(what: string): never {
   throw new GlbFormatError(`Malformed glTF JSON: ${what}.`);
 }
 
-const isRecord = (v: unknown): v is Json => typeof v === "object" && v !== null && !Array.isArray(v);
-const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
-
 function optionalArray(v: unknown, what: string): unknown[] {
   if (v === undefined) return [];
   if (!Array.isArray(v)) malformed(`${what} must be an array`);
@@ -109,14 +108,14 @@ function optionalString(v: unknown, what: string): string | undefined {
 
 function optionalNumber(v: unknown, what: string): number | undefined {
   if (v === undefined) return undefined;
-  if (!isFiniteNumber(v)) malformed(`${what} must be a finite number`);
+  if (!isNum(v)) malformed(`${what} must be a finite number`);
   return v;
 }
 
 /** Exactly `count` finite numbers, or undefined when absent. */
 function optionalNumbers(v: unknown, count: number, what: string): number[] | undefined {
   if (v === undefined) return undefined;
-  if (!Array.isArray(v) || v.length !== count || !v.every(isFiniteNumber)) {
+  if (!Array.isArray(v) || v.length !== count || !v.every(isNum)) {
     malformed(`${what} must be ${count} finite numbers`);
   }
   return v;

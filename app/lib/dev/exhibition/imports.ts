@@ -1,7 +1,7 @@
 // Dev-portal persistence types. The saved-import envelope, its hub summary, and
 // the ids it is filed under. The map document inside it is the shared schema.
 
-import { isParseIssue, MAX_ISSUES, type ExhibitionMap, type ParseIssue } from "../../exhibition-map/schema";
+import { isParseIssue, isRecord, MAX_ISSUES, type ExhibitionMap, type ParseIssue } from "../../exhibition-map/schema";
 
 /**
  * A saved parse. Keeps the issues found at import time alongside the map, so the
@@ -31,9 +31,6 @@ export type ImportSummary = {
   errorCount: number;
   warningCount: number;
 };
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
  * A stored document read back, or null when it is not one. Checks what the hub
