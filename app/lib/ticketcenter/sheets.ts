@@ -230,6 +230,7 @@ export async function createTicket(
     types: input.types,
     project: input.project,
     status,
+    // validateNewTicket's normalised list: the one its Backlog rule checked.
     assignedTo: input.assignedTo ?? [],
     dueDate: input.dueDate ?? "",
     description: input.description ?? "",

@@ -1,6 +1,7 @@
 import {
   TICKET_STATUSES,
   TICKET_TYPES,
+  normalizeAssignees,
   type NewTicketInput,
   type TicketStatus,
   type TicketType,
@@ -110,9 +111,13 @@ export function isValidAssignees(a: unknown): a is string[] {
   });
 }
 
-/** Trimmed and deduped, for writing. Call after isValidAssignees. */
+/**
+ * The list to check rules against and to write: trimmed, without blanks or the
+ * "TBD" placeholder, deduped, exactly as the cell will be read back. Call after
+ * isValidAssignees.
+ */
 export function cleanAssignees(a: string[]): string[] {
-  return [...new Set(a.map((n) => n.trim()))];
+  return normalizeAssignees(a);
 }
 
 /** Validates a create-ticket body. Returns a clean input or an error message. */
@@ -143,7 +148,9 @@ export function validateNewTicket(
   const link = typeof body.link === "string" ? body.link.trim() : "";
   if (!isValidLink(link)) return { ok: false, error: "Link must be an http(s) URL" };
 
-  // Same shape as PATCH /tickets/[number]/assignees: an array of names.
+  // Same shape as PATCH /tickets/[number]/assignees: an array of names. The
+  // Backlog rule runs on the normalised list, which is also the one written, so
+  // ["TBD"] counts as no assignee.
   let assignedTo: string[] = [];
   if (body.assignedTo !== undefined) {
     if (!isValidAssignees(body.assignedTo)) return { ok: false, error: "Invalid assignees" };

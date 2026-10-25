@@ -27,7 +27,9 @@ vi.mock("googleapis", () => ({
   },
 }));
 
-const { updateMeeting, updateTicketStatus } = await import("./sheets");
+const { createTicket, updateMeeting, updateTicketStatus } = await import("./sheets");
+const { validateNewTicket } = await import("./validate");
+const { rowToTicket } = await import("./types");
 const { updateDashboardOrg, updateDirectoryOrg } = await import("./outreach-sheets");
 const { RowMovedError } = await import("./sheet-rows");
 
@@ -75,6 +77,28 @@ describe("ticket and meeting writes", () => {
   it("refuse when the row has since been cleared", async () => {
     api.batchGet.mockImplementationOnce(async () => ({ data: { valueRanges: [{ range: "Tickets!A5" }] } }));
     await expect(updateTicketStatus("ART-002", "Done", "Allen")).rejects.toBeInstanceOf(RowMovedError);
+  });
+});
+
+describe("ticket create", () => {
+  it("writes the validator's assignee list, without TBD, and reads it back the same", async () => {
+    const v = validateNewTicket({
+      title: "T",
+      types: ["design"],
+      project: "P",
+      status: "To Do",
+      assignedTo: ["TBD", " Allen", "Allen", "Amy"],
+    });
+    if (!v.ok) throw new Error(v.error);
+    const ticket = await createTicket(v.input, "Allen");
+    expect(ticket.assignedTo).toEqual(["Allen", "Amy"]);
+
+    const [first] = api.append.mock.calls[0] as unknown as [{ range: string; requestBody: { values: string[][] } }];
+    expect(first.range).toBe("Tickets!A:M");
+    const row = first.requestBody.values[0];
+    expect(row[0]).toBe("ART-003");
+    expect(row[5]).toBe("Allen, Amy");
+    expect(rowToTicket(row)?.assignedTo).toEqual(ticket.assignedTo);
   });
 });
 

@@ -16,6 +16,7 @@ import {
   validateNewTicket,
   validateOrgName,
 } from "./validate";
+import { parseAssignees } from "./types";
 
 const ticket = (over: Record<string, unknown> = {}) => ({ title: "Do it", types: ["design"], project: "P", ...over });
 const err = (r: { ok: boolean; error?: string }) => (r.ok ? null : r.error);
@@ -137,6 +138,13 @@ describe("assignees", () => {
   it("cleanAssignees trims and dedupes", () => {
     expect(cleanAssignees([" Allen", "Allen ", "Amy"])).toEqual(["Allen", "Amy"]);
   });
+
+  it("cleanAssignees drops the TBD placeholder and blanks, like the read side", () => {
+    expect(isValidAssignees(["TBD"])).toBe(true);
+    expect(cleanAssignees(["TBD", " tbd ", "Allen", "", "Allen"])).toEqual(["Allen"]);
+    expect(cleanAssignees(["TBD"])).toEqual([]);
+    expect(parseAssignees(cleanAssignees(["Tbd", "Amy", " Allen"]).join(", "))).toEqual(["Amy", "Allen"]);
+  });
 });
 
 describe("validateNewTicket", () => {
@@ -187,10 +195,23 @@ describe("validateNewTicket", () => {
     expect(err(validateNewTicket(ticket({ status: "To Do" })))).toBe(
       "Assignee is required unless the ticket is in Backlog"
     );
+    expect(err(validateNewTicket(ticket({ status: "To Do", assignedTo: ["TBD"] })))).toBe(
+      "Assignee is required unless the ticket is in Backlog"
+    );
+    expect(err(validateNewTicket(ticket({ status: "In Progress", assignedTo: [" tbd ", "TBD"] })))).toBe(
+      "Assignee is required unless the ticket is in Backlog"
+    );
     expect(err(validateNewTicket(ticket({ status: "To Do", assignedTo: [] })))).toBe(
       "Assignee is required unless the ticket is in Backlog"
     );
     expect(err(validateNewTicket(ticket({ status: "Nope" })))).toBe("Invalid status");
+  });
+
+  it("drops TBD from the list it returns, so the write matches what the rule checked", () => {
+    const backlog = validateNewTicket(ticket({ assignedTo: ["TBD"] }));
+    expect(backlog.ok && backlog.input.assignedTo).toEqual([]);
+    const todo = validateNewTicket(ticket({ status: "To Do", assignedTo: ["TBD", "Allen", " Allen "] }));
+    expect(todo.ok && todo.input.assignedTo).toEqual(["Allen"]);
   });
 
   it("checks the due date and link", () => {
