@@ -38,9 +38,14 @@ export default function TicketDrawer({
   const [savingDue, setSavingDue] = useState(false);
   const [newAssignee, setNewAssignee] = useState("");
 
-  useEffect(() => {
+  // Reset the notes draft when a different ticket is shown or its saved notes
+  // change. Adjusting state during render, not in an effect, also skips the
+  // one render that would otherwise show the previous ticket's notes.
+  const [notesFor, setNotesFor] = useState({ number: ticket.number, notes: ticket.notes });
+  if (notesFor.number !== ticket.number || notesFor.notes !== ticket.notes) {
+    setNotesFor({ number: ticket.number, notes: ticket.notes });
     setNotes(ticket.notes);
-  }, [ticket.number, ticket.notes]);
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

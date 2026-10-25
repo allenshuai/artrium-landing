@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { useColorScheme, type ColorSchemeId } from "../contexts/ColorSchemeContext";
 
@@ -25,7 +25,11 @@ export function ArchCursor() {
   const lastMoveRef = useRef<{ x: number; y: number; time: number } | null>(null);
   const lastFastRef = useRef<number | null>(null);
   const schemeIdRef = useRef<ColorSchemeId>("default");
-  schemeIdRef.current = schemeId;
+  // Mirror the scheme into a ref for the mousemove and rAF handlers below. A
+  // layout effect runs in the same commit, before any later event or frame.
+  useLayoutEffect(() => {
+    schemeIdRef.current = schemeId;
+  }, [schemeId]);
 
   useEffect(() => {
     if (ticketPopupOpen) {

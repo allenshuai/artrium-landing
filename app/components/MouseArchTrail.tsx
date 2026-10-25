@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { TraceRect } from "../contexts/TracePositionsContext";
 import { useTracePositions } from "../contexts/TracePositionsContext";
 
@@ -83,26 +83,26 @@ export function MouseArchTrail() {
     });
   }, [positions]);
 
-  const prune = useCallback(() => {
-    const now = Date.now();
-    setArches((prev) => {
-      const next = prev.filter((a) => now - a.createdAt < TRACE_LIFETIME_MS);
-      prev.forEach((a) => {
-        if (now - a.createdAt >= TRACE_LIFETIME_MS)
-          addedRef.current.delete(a.createdAt);
-      });
-      return next.length === prev.length ? prev : next;
-    });
-    rafRef.current = requestAnimationFrame(prune);
-  }, []);
-
   useEffect(() => {
     if (positions.length === 0) return;
+    // Drop expired arches every frame; the loop re-schedules itself until cleanup.
+    const prune = () => {
+      const now = Date.now();
+      setArches((prev) => {
+        const next = prev.filter((a) => now - a.createdAt < TRACE_LIFETIME_MS);
+        prev.forEach((a) => {
+          if (now - a.createdAt >= TRACE_LIFETIME_MS)
+            addedRef.current.delete(a.createdAt);
+        });
+        return next.length === prev.length ? prev : next;
+      });
+      rafRef.current = requestAnimationFrame(prune);
+    };
     rafRef.current = requestAnimationFrame(prune);
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [positions.length, prune]);
+  }, [positions.length]);
 
   return (
     <div

@@ -2,20 +2,24 @@
 
 import html2canvas from "html2canvas";
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 const MOBILE_BREAKPOINT_PX = 768;
+const SMALL_SCREEN_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
 
+function subscribeToSmallScreen(onChange: () => void) {
+  const mq = window.matchMedia(SMALL_SCREEN_QUERY);
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
+/** False on the server and during hydration, then follows the media query. */
 function useIsSmallScreen() {
-  const [isSmall, setIsSmall] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`);
-    setIsSmall(mq.matches);
-    const listener = () => setIsSmall(mq.matches);
-    mq.addEventListener("change", listener);
-    return () => mq.removeEventListener("change", listener);
-  }, []);
-  return isSmall;
+  return useSyncExternalStore(
+    subscribeToSmallScreen,
+    () => window.matchMedia(SMALL_SCREEN_QUERY).matches,
+    () => false
+  );
 }
 
 function isValidEmail(value: string): boolean {
