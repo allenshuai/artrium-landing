@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { getContactGuide } from "@/app/lib/ticketcenter/outreach-sheets";
-import { errorResponse } from "@/app/lib/ticketcenter/route-helpers";
+import { errorResponse, requireView } from "@/app/lib/ticketcenter/route-helpers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const denied = await requireView();
+  if (denied) return denied;
   try {
     return NextResponse.json(await getContactGuide());
   } catch (err) {

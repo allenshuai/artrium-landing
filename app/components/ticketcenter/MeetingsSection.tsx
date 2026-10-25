@@ -9,7 +9,7 @@ import {
   type MeetingFields,
 } from "@/app/lib/ticketcenter/meetings";
 import { MEETING_COLORS } from "./typeColors";
-import MeetingDrawer, { linkLabel } from "./MeetingDrawer";
+import MeetingDrawer, { MeetingLinks } from "./MeetingDrawer";
 import MeetingForm from "./MeetingForm";
 import MeetingsModal from "./MeetingsModal";
 
@@ -156,15 +156,7 @@ export default function MeetingsSection({
               </p>
               <div className="mt-auto pt-2.5">
                 {m.link ? (
-                  <a
-                    href={m.link}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="inline-block border border-[#3F3A36] bg-[#3F3A36] px-2.5 py-1 text-[11px] font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85"
-                  >
-                    {linkLabel(m.link)} →
-                  </a>
+                  <MeetingLinks link={m.link} compact />
                 ) : (
                   <span className="text-[11px] text-[#3F3A36]/40">No link yet</span>
                 )}

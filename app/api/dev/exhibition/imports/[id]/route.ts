@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { getImport, isUnavailable, type StorageError } from "@/app/lib/dev/exhibition/storage";
+import { requireDevEx } from "@/app/lib/dev/exhibition/route-helpers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const denied = await requireDevEx(); if (denied) return denied;
   const { id } = await params;
   try {
     const doc = await getImport(id);

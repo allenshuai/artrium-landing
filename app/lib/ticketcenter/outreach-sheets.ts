@@ -1,5 +1,6 @@
 import "server-only";
-import { getSheets } from "./sheets";
+import { getSheets, guardedBatchUpdate, type KeyCheck } from "./sheets";
+import { locateRows, type Located } from "./sheet-rows";
 import {
   dashboardFieldsToCells,
   dashboardFromDirectory,
@@ -64,47 +65,50 @@ export async function getDashboard(): Promise<DashboardOrg[]> {
   return rows;
 }
 
-async function readDirectory(): Promise<DirectoryOrg[]> {
+async function readDirectoryRows(): Promise<Located<DirectoryOrg>[]> {
   const res = await getSheets().spreadsheets.values.get({
     spreadsheetId: sheetId(),
     range: DIRECTORY_RANGE,
   });
-  const out: DirectoryOrg[] = [];
-  for (const row of (res.data.values ?? []) as string[][]) {
-    const d = rowToDirectory(row);
-    if (d) out.push(d);
-  }
-  return out;
+  return locateRows((res.data.values ?? []) as string[][], rowToDirectory);
 }
 
-async function readDashboard(): Promise<DashboardOrg[]> {
+async function readDashboardRows(): Promise<Located<DashboardOrg>[]> {
   const res = await getSheets().spreadsheets.values.get({
     spreadsheetId: sheetId(),
     range: DASHBOARD_RANGE,
   });
-  const out: DashboardOrg[] = [];
-  for (const row of (res.data.values ?? []) as string[][]) {
-    const d = rowToDashboard(row);
-    if (d) out.push(d);
-  }
-  return out;
+  return locateRows((res.data.values ?? []) as string[][], rowToDashboard);
+}
+
+async function readDirectory(): Promise<DirectoryOrg[]> {
+  return (await readDirectoryRows()).map((r) => r.item);
+}
+
+async function readDashboard(): Promise<DashboardOrg[]> {
+  return (await readDashboardRows()).map((r) => r.item);
 }
 
 /**
- * Rows are located by org name at write time (never by cached index), so
- * people sorting or inserting rows in the Sheet can't make us write to the
- * wrong line. Row numbers are 1-based with the header on row 1.
+ * Rows are located by org name at write time, never by a cached index, and
+ * each keeps the sheet row it was read from (rows with a blank name are skipped
+ * but still counted). Sorting or inserting rows in the Sheet can still move a
+ * row between that read and the write, so every write re-checks the name in
+ * column A first and refuses with RowMovedError if it changed.
  */
 async function findDirectoryRow(name: string): Promise<{ rowNumber: number; org: DirectoryOrg } | null> {
-  const rows = await readDirectory();
-  const idx = rows.findIndex((r) => orgKey(r.name) === orgKey(name));
-  return idx === -1 ? null : { rowNumber: idx + 2, org: rows[idx] };
+  const hit = (await readDirectoryRows()).find((r) => orgKey(r.item.name) === orgKey(name));
+  return hit ? { rowNumber: hit.sheetRow, org: hit.item } : null;
 }
 
 async function findDashboardRow(name: string): Promise<{ rowNumber: number; org: DashboardOrg } | null> {
-  const rows = await readDashboard();
-  const idx = rows.findIndex((r) => orgKey(r.name) === orgKey(name));
-  return idx === -1 ? null : { rowNumber: idx + 2, org: rows[idx] };
+  const hit = (await readDashboardRows()).find((r) => orgKey(r.item.name) === orgKey(name));
+  return hit ? { rowNumber: hit.sheetRow, org: hit.item } : null;
+}
+
+/** Org names match trimmed and case-insensitively, as everywhere else. */
+function orgCheck(tab: "Directory" | "Dashboard", sheetRow: number, name: string): KeyCheck {
+  return { tab, sheetRow, key: name, matches: (cell) => orgKey(cell) === orgKey(name) };
 }
 
 /** Best-effort audit trail in a "Log" tab; a missing tab must never block a save. */
@@ -164,6 +168,7 @@ export async function updateDirectoryOrg(
     status: patch.status ?? org.status,
     notes: patch.notes ?? org.notes,
   };
+  const checks = [orgCheck("Directory", rowNumber, org.name)];
   const data = [
     { range: `Directory!B${rowNumber}:J${rowNumber}`, values: [directoryFieldsToCells(next)] },
     { range: `Directory!K${rowNumber}:L${rowNumber}`, values: [[now, leadName]] },
@@ -175,6 +180,7 @@ export async function updateDirectoryOrg(
   if (dash) {
     dashboard = dash.org;
     if (next.status !== dash.org.status) {
+      checks.push(orgCheck("Dashboard", dash.rowNumber, dash.org.name));
       data.push(
         { range: `Dashboard!N${dash.rowNumber}`, values: [[next.status]] },
         { range: `Dashboard!T${dash.rowNumber}:U${dash.rowNumber}`, values: [[now, leadName]] }
@@ -183,10 +189,7 @@ export async function updateDirectoryOrg(
     }
   }
 
-  await getSheets().spreadsheets.values.batchUpdate({
-    spreadsheetId: sheetId(),
-    requestBody: { valueInputOption: "RAW", data },
-  });
+  await guardedBatchUpdate(sheetId(), checks, data);
   const changed = (Object.keys(patch) as (keyof DirectoryFields)[]).filter(
     (k) => patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(org[k])
   );
@@ -246,6 +249,7 @@ export async function updateDashboardOrg(
     nextActionDate: patch.nextActionDate ?? org.nextActionDate,
     notes: patch.notes ?? org.notes,
   };
+  const checks = [orgCheck("Dashboard", rowNumber, org.name)];
   const data = [
     { range: `Dashboard!B${rowNumber}:S${rowNumber}`, values: [dashboardFieldsToCells(next)] },
     { range: `Dashboard!T${rowNumber}:U${rowNumber}`, values: [[now, leadName]] },
@@ -256,6 +260,7 @@ export async function updateDashboardOrg(
   if (dir) {
     directory = dir.org;
     if (next.status !== dir.org.status) {
+      checks.push(orgCheck("Directory", dir.rowNumber, dir.org.name));
       data.push(
         { range: `Directory!I${dir.rowNumber}`, values: [[next.status]] },
         { range: `Directory!K${dir.rowNumber}:L${dir.rowNumber}`, values: [[now, leadName]] }
@@ -264,10 +269,7 @@ export async function updateDashboardOrg(
     }
   }
 
-  await getSheets().spreadsheets.values.batchUpdate({
-    spreadsheetId: sheetId(),
-    requestBody: { valueInputOption: "RAW", data },
-  });
+  await guardedBatchUpdate(sheetId(), checks, data);
   const changed = (Object.keys(patch) as (keyof DashboardFields)[]).filter(
     (k) => patch[k] !== undefined && JSON.stringify(patch[k]) !== JSON.stringify(org[k])
   );

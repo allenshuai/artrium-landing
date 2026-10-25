@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { isUnavailable, listImports, saveImport, StorageError } from "@/app/lib/dev/exhibition/storage";
 import type { ParseIssue } from "@/app/lib/exhibition-map/schema";
+import { requireDevEx } from "@/app/lib/dev/exhibition/route-helpers";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const denied = await requireDevEx(); if (denied) return denied;
   try {
     return NextResponse.json({ imports: await listImports() });
   } catch (e) {
@@ -14,6 +16,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireDevEx(); if (denied) return denied;
   let body: { map?: unknown; errors?: unknown };
   try {
     body = await req.json();

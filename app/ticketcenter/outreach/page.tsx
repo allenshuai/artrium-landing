@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { LEAD_COOKIE, verifyLeadToken } from "@/app/lib/ticketcenter/auth";
+import { requireViewPage } from "@/app/lib/ticketcenter/route-helpers";
 import { getDashboard, getDirectory } from "@/app/lib/ticketcenter/outreach-sheets";
 import type { DashboardOrg, DirectoryOrg } from "@/app/lib/ticketcenter/outreach";
 import OutreachBoard from "@/app/components/ticketcenter/OutreachBoard";
@@ -8,6 +9,7 @@ import OutreachBoard from "@/app/components/ticketcenter/OutreachBoard";
 export const dynamic = "force-dynamic";
 
 export default async function OutreachPage() {
+  await requireViewPage();
   const store = await cookies();
   const lead = await verifyLeadToken(store.get(LEAD_COOKIE)?.value);
 
