@@ -3,7 +3,13 @@
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
 import { GlbFormatError, glbJsonChunkRange, parseGlb } from "@/app/lib/dev/exhibition/parseGlb";
-import type { ExhibitionMap, MinimapVariant, ParseIssue } from "@/app/lib/exhibition-map/schema";
+import {
+  ASSET_ORIGIN,
+  isAssetUrl,
+  type ExhibitionMap,
+  type MinimapVariant,
+  type ParseIssue,
+} from "@/app/lib/exhibition-map/schema";
 import IssueList from "../IssueList";
 import MinimapPreview, { type ChosenImage } from "../MinimapPreview";
 
@@ -135,12 +141,12 @@ export default function ParserPage() {
   function chooseImage(image: ChosenImage) {
     const name = image.fileName.toLowerCase();
     const variant: MinimapVariant = name.includes("dark") ? "dark" : name.includes("white") || name.includes("light") ? "light" : "textured";
-    setMinimapImage({ ...image, variant, url: `https://assets.artrium.space/${image.fileName}` });
+    setMinimapImage({ ...image, variant, url: `${ASSET_ORIGIN}/${image.fileName}` });
   }
   const assetUrlHint = !assetUrl.trim()
     ? "Required before publishing — the visitor gallery has nothing to load without it."
-    : !assetUrl.trim().startsWith("https://assets.artrium.space/")
-      ? "Visitors load from assets.artrium.space. A local path only works in development, via NEXT_PUBLIC_GALLERY_MODEL_URL."
+    : !isAssetUrl(assetUrl.trim())
+      ? `Must be an ${ASSET_ORIGIN}/… URL; saving refuses anything else. In development, point NEXT_PUBLIC_GALLERY_MODEL_URL at a local file instead.`
       : null;
 
   async function save() {
@@ -218,7 +224,7 @@ export default function ParserPage() {
         <input
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder="…or an https://assets.artrium.space/….glb URL"
+          placeholder={`…or an ${ASSET_ORIGIN}/….glb URL`}
           className="flex-1 border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
         />
         <button
@@ -266,7 +272,7 @@ export default function ParserPage() {
             <input
               value={assetUrl}
               onChange={(e) => setAssetUrl(e.target.value)}
-              placeholder="https://assets.artrium.space/….glb"
+              placeholder={`${ASSET_ORIGIN}/….glb`}
               className="mt-1 w-full border border-[#3F3A36]/25 bg-white px-3 py-2 text-sm outline-none focus:border-[#3F3A36]"
             />
             {assetUrlHint && <span className="mt-1 block text-sm text-[#D98C1F]">{assetUrlHint}</span>}
@@ -325,10 +331,10 @@ export default function ParserPage() {
                   <option value="light">light</option>
                 </select>
               </label>
-              {!minimapImage.url.trim().startsWith("https://assets.artrium.space/") && (
+              {!isAssetUrl(minimapImage.url.trim()) && (
                 <span className="text-sm text-[#D98C1F] sm:col-span-2">
-                  Visitors load the minimap from assets.artrium.space. A local path only works in development, via
-                  NEXT_PUBLIC_GALLERY_MINIMAP_URL.
+                  Must be an {ASSET_ORIGIN}/… URL; saving refuses anything else. In development, point
+                  NEXT_PUBLIC_GALLERY_MINIMAP_URL at a local file instead.
                 </span>
               )}
             </div>

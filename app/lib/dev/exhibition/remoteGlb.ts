@@ -6,6 +6,7 @@
 // exhibition is 244.5 MB, and downloading it would blow the function's memory and
 // time budget.
 
+import { ASSET_ORIGIN, isAssetUrl } from "../../exhibition-map/schema";
 import { glbJsonChunkRange, GlbFormatError } from "./parseGlb";
 
 /**
@@ -15,9 +16,6 @@ import { glbJsonChunkRange, GlbFormatError } from "./parseGlb";
 export const MAX_JSON_CHUNK = 32 * 1024 * 1024;
 
 const HEADER_BYTES = 20;
-
-/** Only the host we publish to. Prevents this route being used to fetch arbitrary URLs. */
-const ALLOWED_HOSTS = new Set(["assets.artrium.space"]);
 
 /**
  * The asset host did not give us what we asked for: a redirect, a network
@@ -46,9 +44,11 @@ function checkedUrl(raw: string): URL {
     throw new GlbFormatError("Not a valid URL.");
   }
   if (url.protocol !== "https:") throw new GlbFormatError("Asset URL must be https.");
-  // `host` includes any port, so assets.artrium.space:8443 is refused too.
-  if (!ALLOWED_HOSTS.has(url.host) || url.username || url.password) {
-    throw new GlbFormatError(`Only ${[...ALLOWED_HOSTS].join(", ")} URLs can be parsed.`);
+  // Only the host we publish to, by the same rule the map's URL fields follow,
+  // so this route cannot be pointed at arbitrary URLs. Checked on the normalised
+  // href, which also refuses a port or credentials.
+  if (!isAssetUrl(url.href)) {
+    throw new GlbFormatError(`Only ${ASSET_ORIGIN}/… URLs can be parsed.`);
   }
   return url;
 }

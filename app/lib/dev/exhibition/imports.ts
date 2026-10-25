@@ -1,7 +1,7 @@
 // Dev-portal persistence types. The saved-import envelope, its hub summary, and
 // the ids it is filed under. The map document inside it is the shared schema.
 
-import type { ExhibitionMap, ParseIssue } from "../../exhibition-map/schema";
+import { isParseIssue, type ExhibitionMap, type ParseIssue } from "../../exhibition-map/schema";
 
 /**
  * A saved parse. Keeps the issues found at import time alongside the map, so the
@@ -12,7 +12,12 @@ export type StoredImport = {
   id: string;
   savedAt: string;
   map: ExhibitionMap;
-  errors: ParseIssue[];
+  /**
+   * The parse issues, as stored. Saves are checked against ParseIssue now, but a
+   * document written before that check can hold anything, so readers treat the
+   * entries as unknown and skip what is malformed.
+   */
+  errors: unknown[];
 };
 
 /** What the hub list needs. Derived, never stored separately. */
@@ -28,6 +33,11 @@ export type ImportSummary = {
 };
 
 export function summarize(stored: StoredImport): ImportSummary {
+  // One malformed stored issue (`[null]`, say) used to throw here, and the hub
+  // lists every import, so it took the whole list down with it.
+  const issues = Array.isArray(stored.errors) ? stored.errors : [];
+  const count = (level: ParseIssue["level"]) =>
+    issues.filter((e) => isParseIssue(e) && e.level === level).length;
   return {
     id: stored.id,
     savedAt: stored.savedAt,
@@ -35,8 +45,8 @@ export function summarize(stored: StoredImport): ImportSummary {
     rooms: stored.map.rooms.length,
     artworks: stored.map.artworks.length,
     spawns: stored.map.spawns.length,
-    errorCount: stored.errors.filter((e) => e.level === "error").length,
-    warningCount: stored.errors.filter((e) => e.level === "warning").length,
+    errorCount: count("error"),
+    warningCount: count("warning"),
   };
 }
 

@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { isUnavailable, listImports, saveImport, StorageError } from "@/app/lib/dev/exhibition/storage";
-import type { ParseIssue } from "@/app/lib/exhibition-map/schema";
 import { requireDevEx } from "@/app/lib/dev/exhibition/route-helpers";
 
 export const dynamic = "force-dynamic";
@@ -17,23 +16,27 @@ export async function GET() {
 
 export async function POST(req: Request) {
   const denied = await requireDevEx(); if (denied) return denied;
-  let body: { map?: unknown; errors?: unknown };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
+  const { map, errors } = (typeof body === "object" && body !== null ? body : {}) as {
+    map?: unknown;
+    errors?: unknown;
+  };
 
-  if (body.map === undefined) {
+  if (map === undefined) {
     return NextResponse.json({ error: "Send { map, errors } from a parse." }, { status: 400 });
   }
 
-  // Warnings are expected on a partial import and must not block saving; the
-  // blocking check lives in saveImport, against the one schema.
-  const errors = Array.isArray(body.errors) ? (body.errors as ParseIssue[]) : [];
-
+  // Warnings are expected on a partial import and must not block saving. The
+  // blocking checks live in saveImport, against the one schema: the map through
+  // validateMap, and the issue list (absent means none) through isIssueList,
+  // since the hub reads every stored list back.
   try {
-    return NextResponse.json({ id: await saveImport(body.map, errors) }, { status: 201 });
+    return NextResponse.json({ id: await saveImport(map, errors ?? []) }, { status: 201 });
   } catch (e) {
     // A misconfigured store is not the caller's fault, so it must not look like
     // a rejected document.

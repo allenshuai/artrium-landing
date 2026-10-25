@@ -1,14 +1,19 @@
-import type { ParseIssue } from "@/app/lib/exhibition-map/schema";
+import { isParseIssue } from "@/app/lib/exhibition-map/schema";
 
 // Presentational only, no hooks, so the client parser page and the server
-// detail page both render issues the same way.
-export default function IssueList({ title, issues }: { title: string; issues: ParseIssue[] }) {
-  if (issues.length === 0) return null;
+// detail page both render issues the same way. Stored issues are untrusted: a
+// document saved before they were validated can hold anything, so malformed
+// entries are counted and skipped rather than rendered.
+export default function IssueList({ title, issues }: { title: string; issues: readonly unknown[] }) {
+  const all = Array.isArray(issues) ? issues : [];
+  if (all.length === 0) return null;
+  const valid = all.filter(isParseIssue);
+  const skipped = all.length - valid.length;
   return (
     <div className="mt-4">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-[#3F3A36]/50">{title}</h3>
       <ul className="mt-2 space-y-1">
-        {issues.map((issue, i) => (
+        {valid.map((issue, i) => (
           <li
             key={`${issue.code}-${i}`}
             className="border-l-2 pl-3 text-sm"
@@ -21,6 +26,11 @@ export default function IssueList({ title, issues }: { title: string; issues: Pa
           </li>
         ))}
       </ul>
+      {skipped > 0 && (
+        <p className="mt-2 text-sm text-[#3F3A36]/50">
+          {skipped} malformed {skipped === 1 ? "entry" : "entries"} not shown.
+        </p>
+      )}
     </div>
   );
 }

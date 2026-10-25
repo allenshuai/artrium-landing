@@ -10,6 +10,8 @@ import test from "node:test";
 import { glbJsonChunkRange, GlbFormatError, MAX_DEPTH, MAX_NODES, parseGlb } from "./parseGlb";
 import { AssetFetchError, MAX_JSON_CHUNK, readRemoteGlbHead, type FetchLike } from "./remoteGlb";
 import {
+  isIssueList,
+  MAX_ISSUES,
   PARSER_VERSION,
   validateMap,
 } from "../../exhibition-map/schema";
@@ -667,4 +669,46 @@ test("only https URLs on the asset host are ever fetched", async () => {
     await assert.rejects(readRemoteGlbHead(url, fetchImpl), GlbFormatError, url);
   }
   assert.equal(calls.length, 0);
+});
+
+// --- stored issues ----------------------------------------------------------
+
+test("a submitted issue list must be well-formed and bounded", () => {
+  const issue = { level: "warning", code: "bounds.not-a-mesh", message: "No mesh.", object: "ExhibitionBounds" };
+  assert.equal(isIssueList([]), true);
+  assert.equal(isIssueList([issue, { level: "error", code: "spawn.missing-main", message: "No spawn." }]), true);
+  assert.equal(isIssueList(Array.from({ length: MAX_ISSUES }, () => issue)), true);
+
+  assert.equal(isIssueList(Array.from({ length: MAX_ISSUES + 1 }, () => issue)), false, "over the cap");
+  for (const bad of [
+    null,
+    42,
+    "warning",
+    { ...issue, level: "fatal" },
+    { ...issue, code: 7 },
+    { ...issue, message: undefined },
+    { ...issue, object: { name: "x" } },
+    { ...issue, object: null },
+  ]) {
+    assert.equal(isIssueList([bad]), false, JSON.stringify(bad));
+  }
+  assert.equal(isIssueList({ 0: issue, length: 1 }), false, "array-like is not an array");
+});
+
+test("a malformed stored issue is skipped, not thrown on, when summarising", () => {
+  const { map } = parseGlb({ bytes: glb([{ name: "Spawn_Main" }]) });
+  const base = { id: "abcdef1234567890", savedAt: "2026-09-23T00:00:00.000Z", map };
+
+  // `[null]` alone used to make the hub list answer 500 until the blob was deleted.
+  const summary = summarize({
+    ...base,
+    errors: [null, 42, "error", { level: "error" }, { level: "error", code: "x", message: "y", object: {} },
+      { level: "error", code: "spawn.missing-main", message: "No spawn." },
+      { level: "warning", code: "bounds.not-a-mesh", message: "No mesh." }],
+  });
+  assert.equal(summary.errorCount, 1);
+  assert.equal(summary.warningCount, 1);
+
+  // Not even an array.
+  assert.equal(summarize({ ...base, errors: "oops" as unknown as unknown[] }).errorCount, 0);
 });

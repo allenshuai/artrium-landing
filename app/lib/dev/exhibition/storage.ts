@@ -3,9 +3,10 @@ import "server-only";
 import { get, list, put } from "@vercel/blob";
 import {
   hasBlockingError,
+  isIssueList,
+  MAX_ISSUES,
   validateMap,
   type ExhibitionMap,
-  type ParseIssue,
 } from "../../exhibition-map/schema";
 import {
   isValidImportId,
@@ -138,12 +139,18 @@ async function blobGet(id: string): Promise<StoredImport | null> {
 /**
  * Persists a parse result. Revalidates through the one schema first: with
  * client-side parsing, a posted document is untrusted no matter who posted it.
+ * That covers the issue list too, which every hub listing reads back.
  */
-export async function saveImport(map: unknown, errors: ParseIssue[]): Promise<string> {
+export async function saveImport(map: unknown, errors: unknown): Promise<string> {
   const issues = validateMap(map);
   if (hasBlockingError(issues)) {
     throw new StorageError(
       `Refusing to save a malformed map: ${issues.map((i) => i.code).join(", ")}`
+    );
+  }
+  if (!isIssueList(errors)) {
+    throw new StorageError(
+      `errors must be an array of at most ${MAX_ISSUES} issues, each { level: "error" | "warning", code, message, object? }.`
     );
   }
 
@@ -152,7 +159,10 @@ export async function saveImport(map: unknown, errors: ParseIssue[]): Promise<st
     id,
     savedAt: new Date().toISOString(),
     map: { ...(map as ExhibitionMap), id },
-    errors,
+    // Only the ParseIssue fields are kept, so the list cannot carry anything else.
+    errors: errors.map(({ level, code, message, object }) =>
+      object === undefined ? { level, code, message } : { level, code, message, object }
+    ),
   };
 
   if (localStoreActive()) {
