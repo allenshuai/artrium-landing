@@ -697,6 +697,45 @@ test("a 206 carrying more than the requested range is cut off", async () => {
   await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), AssetFetchError);
 });
 
+test("a 206 carrying less than the requested range is the host's failure, not a format error", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const { length } = glbJsonChunkRange(file);
+  const end = 19 + length;
+  const short = (body: BodyInit | null, contentRange?: string) =>
+    new Response(body, { status: 206, headers: contentRange ? { "content-range": contentRange } : {} });
+
+  const cases: [string, number, () => Response][] = [
+    ["an empty header read", 1, () => short(null)],
+    ["a zero-byte header read", 1, () => short(new Uint8Array(0), "bytes 0-19/4096")],
+    ["a cut-off header read", 1, () => short(file.slice(0, 12), `bytes 0-19/${file.byteLength}`)],
+    ["a cut-off header read without Content-Range", 1, () => short(file.slice(0, 12))],
+    ["an empty chunk read", 2, () => short(new Uint8Array(0))],
+    ["a cut-off chunk read", 2, () => short(file.slice(0, end - 3), `bytes 0-${end}/${file.byteLength}`)],
+    ["a body shorter than its own Content-Range", 2, () => short(file.slice(0, 40), "bytes 0-39/40000")],
+  ];
+  for (const [label, call, response] of cases) {
+    const { fetchImpl } = cdn(file, (n) => (n === call ? response() : undefined));
+    await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), (e: Error) => {
+      assert.ok(e instanceof AssetFetchError, `${label}: expected AssetFetchError, got ${String(e)}`);
+      assert.equal(e.message, "Asset host sent fewer bytes than were requested.");
+      return true;
+    });
+  }
+
+  // A file that really is that short: Content-Range says the range ran past its
+  // end, so the bytes are the whole file and the format check reports it.
+  const tiny = file.slice(0, 10);
+  await assert.rejects(readRemoteGlbHead(ASSET, cdn(tiny).fetchImpl), (e: Error) => {
+    assert.ok(e instanceof GlbFormatError, String(e));
+    assert.match(e.message, /shorter than 20 bytes/);
+    return true;
+  });
+  // A header that promises more JSON than the file holds.
+  const truncated = file.slice(0, end - 8);
+  const head = await readRemoteGlbHead(ASSET, cdn(truncated).fetchImpl);
+  assert.throws(() => parseGlb(head), /Truncated/);
+});
+
 test("fetch failures, redirects included, come back without their text", async () => {
   const secret = "connect ECONNREFUSED 10.0.12.7:443";
   const fetchImpl: FetchLike = async () => {

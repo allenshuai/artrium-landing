@@ -2,7 +2,8 @@
 //
 // Kept apart from the parse route, and handed its fetch, so the network rules
 // can be tested without a network: two small range requests, both answered 206,
-// no redirects followed, and never more bytes than the JSON chunk needs. The live
+// no redirects followed, and exactly the bytes asked for: never more than the JSON
+// chunk needs, and fewer only where the file itself ends. The live
 // exhibition is 244.5 MB, and downloading it would blow the function's memory and
 // time budget.
 
@@ -19,7 +20,7 @@ const HEADER_BYTES = 20;
 
 /**
  * The asset host did not give us what we asked for: a redirect, a network
- * failure, an answer other than 206, or more bytes than requested. The message
+ * failure, an answer other than 206, or more or fewer bytes than requested. The message
  * is always ours and carries at most a status code; the underlying error rides
  * on `cause` for the server log and is never sent to the client.
  */
@@ -53,14 +54,35 @@ function checkedUrl(raw: string): URL {
   return url;
 }
 
-/** Reads a body, refusing to buffer more than `max` bytes whatever the headers claim. */
-async function readAtMost(res: Response, max: number): Promise<ArrayBuffer> {
+/**
+ * True when Content-Range says the file ends after `length` bytes from `from`:
+ * `bytes <from>-<from + length - 1>/<from + length>`. That is the one honest
+ * short 206, for a range that runs past the end of the file.
+ */
+function reachesEndOfFile(contentRange: string | null, from: number, length: number): boolean {
+  const m = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(contentRange?.trim() ?? "");
+  if (!m || length === 0) return false;
+  const [start, end, total] = m.slice(1).map(Number);
+  return start === from && end === from + length - 1 && total === end + 1;
+}
+
+/**
+ * Reads a 206 body of exactly `max` bytes, refusing to buffer more whatever the
+ * headers claim.
+ *
+ * Fewer is the host's failure too (an empty or cut-off body), not a malformed
+ * file, so it is not left for the format checks to report as the caller's 422.
+ * The exception is a range that runs past the end of the file, which
+ * Content-Range then says: those bytes are the whole file, and a GLB that short
+ * is the file's problem, reported as truncated.
+ */
+async function readExactly(res: Response, from: number, max: number): Promise<ArrayBuffer> {
   const declared = Number(res.headers.get("content-length"));
   if (declared > max) {
     await res.body?.cancel();
     throw new AssetFetchError("Asset host sent more bytes than were requested.");
   }
-  if (!res.body) return new ArrayBuffer(0);
+  if (!res.body) throw new AssetFetchError("Asset host sent fewer bytes than were requested.");
 
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -74,6 +96,10 @@ async function readAtMost(res: Response, max: number): Promise<ArrayBuffer> {
       throw new AssetFetchError("Asset host sent more bytes than were requested.");
     }
     chunks.push(value);
+  }
+
+  if (size < max && !reachesEndOfFile(res.headers.get("content-range"), from, size)) {
+    throw new AssetFetchError("Asset host sent fewer bytes than were requested.");
   }
 
   const out = new Uint8Array(size);
@@ -118,7 +144,7 @@ async function range(
     );
   }
 
-  return { bytes: await readAtMost(res, to - from + 1), contentRange: res.headers.get("content-range") };
+  return { bytes: await readExactly(res, from, to - from + 1), contentRange: res.headers.get("content-range") };
 }
 
 function totalFrom(contentRange: string | null): number | null {
