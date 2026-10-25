@@ -1,27 +1,56 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import IssueList from "../IssueList";
-import { getImport } from "@/app/lib/dev/exhibition/storage";
-import { summarize } from "@/app/lib/dev/exhibition/imports";
+import { getImport, isUnavailable, type StorageError } from "@/app/lib/dev/exhibition/storage";
+import { summarize, type StoredImport } from "@/app/lib/dev/exhibition/imports";
 import { requireDevExPage } from "@/app/lib/dev/exhibition/route-helpers";
 
 export const dynamic = "force-dynamic";
 
+const backLink = (
+  <Link href="/dev/exhibition" className="text-sm text-[#3F3A36]/60 underline underline-offset-4 hover:text-[#3F3A36]">
+    Back to hub
+  </Link>
+);
+
 export default async function ImportDetailPage({ params }: { params: Promise<{ id: string }> }) {
   await requireDevExPage();
   const { id } = await params;
-  const doc = await getImport(id);
+
+  // A store that is down is not a missing import: say so rather than 404 or
+  // crash. (A page cannot answer 503; the API route for this id does.)
+  let doc: StoredImport | null = null;
+  let unavailable: string | null = null;
+  try {
+    doc = await getImport(id);
+  } catch (e) {
+    if (!isUnavailable(e)) throw e;
+    unavailable = (e as StorageError).message;
+  }
+
+  if (unavailable) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-14">
+        <div className="flex items-baseline justify-between gap-4">
+          <h1 className="font-mono text-2xl font-semibold">{id}</h1>
+          {backLink}
+        </div>
+        <p className="mt-6 border-l-2 border-[#C0392B] pl-3 text-sm text-[#C0392B]">{unavailable}</p>
+      </main>
+    );
+  }
   if (!doc) notFound();
 
   const summary = summarize(doc);
+  // Stored documents predate some of today's checks, so scalars are rendered
+  // only when they have the type the schema promises.
+  const { assetUrl, parserVersion, source } = doc.map as Partial<StoredImport["map"]>;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-14">
       <div className="flex items-baseline justify-between gap-4">
         <h1 className="font-mono text-2xl font-semibold">{doc.id}</h1>
-        <Link href="/dev/exhibition" className="text-sm text-[#3F3A36]/60 underline underline-offset-4 hover:text-[#3F3A36]">
-          Back to hub
-        </Link>
+        {backLink}
       </div>
 
       <p className="mt-1 text-sm text-[#3F3A36]/60">
@@ -45,15 +74,15 @@ export default async function ImportDetailPage({ params }: { params: Promise<{ i
       <dl className="mt-4 space-y-1 text-sm">
         <div className="flex gap-2">
           <dt className="w-28 shrink-0 text-[#3F3A36]/50">Asset URL</dt>
-          <dd className="break-all">{doc.map.assetUrl ?? "—"}</dd>
+          <dd className="break-all">{typeof assetUrl === "string" ? assetUrl : "—"}</dd>
         </div>
         <div className="flex gap-2">
           <dt className="w-28 shrink-0 text-[#3F3A36]/50">Source bytes</dt>
-          <dd>{doc.map.source.bytes?.toLocaleString() ?? "—"}</dd>
+          <dd>{typeof source?.bytes === "number" ? source.bytes.toLocaleString() : "—"}</dd>
         </div>
         <div className="flex gap-2">
           <dt className="w-28 shrink-0 text-[#3F3A36]/50">Parser</dt>
-          <dd>v{doc.map.parserVersion}</dd>
+          <dd>{typeof parserVersion === "number" ? `v${parserVersion}` : "—"}</dd>
         </div>
       </dl>
 

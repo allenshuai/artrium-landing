@@ -17,6 +17,8 @@ import {
   REQUIRED_SPAWN_ID,
   duplicates,
   idFor,
+  isNum,
+  isRecord,
   matchPrefix,
   suspectDuplicateSuffix,
   type Artwork,
@@ -47,29 +49,104 @@ export type ParseInput = {
 
 export class GlbFormatError extends Error {}
 
+/**
+ * Most nodes one file may hold. Real exports carry hundreds; the cap bounds the
+ * walk on a hostile or corrupt JSON chunk.
+ */
+export const MAX_NODES = 20_000;
+
+/** Deepest node nesting the walk follows. Blender hierarchies run to tens. */
+export const MAX_DEPTH = 256;
+
+// --- reading the glTF JSON -------------------------------------------------
+// The JSON chunk is untrusted input: every field is type-checked as it is read,
+// so a type-confused or malformed document is a GlbFormatError (the route's
+// 422), never a TypeError or RangeError (a 502).
+
+type Json = Record<string, unknown>;
+
+function malformed(what: string): never {
+  throw new GlbFormatError(`Malformed glTF JSON: ${what}.`);
+}
+
+function optionalArray(v: unknown, what: string): unknown[] {
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) malformed(`${what} must be an array`);
+  return v;
+}
+
+function optionalRecord(v: unknown, what: string): Json | undefined {
+  if (v === undefined) return undefined;
+  if (!isRecord(v)) malformed(`${what} must be an object`);
+  return v;
+}
+
+function toIndex(v: unknown, what: string): number {
+  if (typeof v !== "number" || !Number.isSafeInteger(v) || v < 0) malformed(`${what} must be a non-negative integer`);
+  return v;
+}
+
+const optionalIndex = (v: unknown, what: string): number | undefined =>
+  v === undefined ? undefined : toIndex(v, what);
+
+/**
+ * An optional array of indices, each checked, returned as is rather than
+ * copied: a children list can hold millions of entries. Whether each index
+ * names an existing node is the walk's business, not this check's.
+ */
+function indexList(v: unknown, what: string): number[] {
+  const list = optionalArray(v, what);
+  for (let k = 0; k < list.length; k++) toIndex(list[k], `${what}[${k}]`);
+  return list as number[];
+}
+
+function optionalString(v: unknown, what: string): string | undefined {
+  if (v === undefined) return undefined;
+  if (typeof v !== "string") malformed(`${what} must be a string`);
+  return v;
+}
+
+function optionalNumber(v: unknown, what: string): number | undefined {
+  if (v === undefined) return undefined;
+  if (!isNum(v)) malformed(`${what} must be a finite number`);
+  return v;
+}
+
+/** Exactly `count` finite numbers, or undefined when absent. */
+function optionalNumbers(v: unknown, count: number, what: string): number[] | undefined {
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || v.length !== count || !v.every(isNum)) {
+    malformed(`${what} must be ${count} finite numbers`);
+  }
+  return v;
+}
+
+/** The object at `list[i]`, which something else referred to. */
+function item(list: unknown[], i: number, what: string): Json {
+  if (i >= list.length) malformed(`${what} ${i} does not exist (there are ${list.length})`);
+  const v = list[i];
+  if (!isRecord(v)) malformed(`${what} ${i} must be an object`);
+  return v;
+}
+
+/** The top-level arrays the parser reads, shape-checked once. Elements are checked as they are used. */
+type Gltf = {
+  nodes: unknown[];
+  meshes: unknown[];
+  accessors: unknown[];
+  cameras: unknown[];
+  /** Root node indices of the default scene. Not range-checked: see flatten. */
+  roots: number[];
+};
+
 type GltfNode = {
-  name?: string;
-  children?: number[];
+  name: string;
+  /** Not range-checked: see flatten. */
+  children: number[];
   mesh?: number;
   camera?: number;
-  matrix?: number[];
-  translation?: number[];
-  rotation?: number[];
-  scale?: number[];
-};
-
-type GltfCamera = {
-  type?: string;
-  orthographic?: { xmag?: number; ymag?: number };
-};
-
-type Gltf = {
-  cameras?: GltfCamera[];
-  nodes?: GltfNode[];
-  meshes?: { name?: string; primitives?: { attributes?: Record<string, number> }[] }[];
-  accessors?: { min?: number[]; max?: number[] }[];
-  scenes?: { nodes?: number[] }[];
-  scene?: number;
+  /** Local transform, from `matrix` or from translation/rotation/scale. */
+  local: Mat4;
 };
 
 /** Byte offset and length of the JSON chunk, read from the 20-byte prologue. */
@@ -85,6 +162,18 @@ export function glbJsonChunkRange(header: ArrayBuffer): { offset: number; length
   return { offset: 20, length: view.getUint32(12, true) };
 }
 
+function sceneRoots(json: Json, nodeCount: number): number[] {
+  const scenes = optionalArray(json.scenes, "scenes");
+  const sceneIndex = optionalIndex(json.scene, "scene") ?? 0;
+  const scene = scenes[sceneIndex];
+  // No scene to start from: every node is a root, as before.
+  const all = () => Array.from({ length: nodeCount }, (_, i) => i);
+  if (scene === undefined) return all();
+  if (!isRecord(scene)) malformed(`scene ${sceneIndex} must be an object`);
+  if (scene.nodes === undefined) return all();
+  return indexList(scene.nodes, `scene ${sceneIndex} nodes`);
+}
+
 function readGltf(bytes: ArrayBuffer): Gltf {
   const { offset, length } = glbJsonChunkRange(bytes);
   if (bytes.byteLength < offset + length) {
@@ -92,8 +181,46 @@ function readGltf(bytes: ArrayBuffer): Gltf {
       `Truncated: JSON chunk needs ${offset + length} bytes, got ${bytes.byteLength}.`
     );
   }
-  const text = new TextDecoder().decode(new Uint8Array(bytes, offset, length));
-  return JSON.parse(text) as Gltf;
+
+  let json: unknown;
+  try {
+    json = JSON.parse(new TextDecoder().decode(new Uint8Array(bytes, offset, length)));
+  } catch {
+    throw new GlbFormatError("The GLB's JSON chunk is not valid JSON.");
+  }
+  if (!isRecord(json)) malformed("the document must be an object");
+
+  const nodes = optionalArray(json.nodes, "nodes");
+  if (nodes.length > MAX_NODES) {
+    throw new GlbFormatError(`The file has ${nodes.length} nodes; the parser reads at most ${MAX_NODES}.`);
+  }
+
+  return {
+    nodes,
+    meshes: optionalArray(json.meshes, "meshes"),
+    accessors: optionalArray(json.accessors, "accessors"),
+    cameras: optionalArray(json.cameras, "cameras"),
+    roots: sceneRoots(json, nodes.length),
+  };
+}
+
+function readNode(gltf: Gltf, i: number): GltfNode {
+  const raw = item(gltf.nodes, i, "node");
+  const what = `node ${i}`;
+  const matrix = optionalNumbers(raw.matrix, 16, `${what} matrix`);
+  return {
+    name: optionalString(raw.name, `${what} name`) ?? "",
+    children: indexList(raw.children, `${what} children`),
+    mesh: optionalIndex(raw.mesh, `${what} mesh`),
+    camera: optionalIndex(raw.camera, `${what} camera`),
+    local: matrix
+      ? matrix.slice()
+      : composeTrs(
+          optionalNumbers(raw.translation, 3, `${what} translation`) ?? [0, 0, 0],
+          optionalNumbers(raw.rotation, 4, `${what} rotation`) ?? [0, 0, 0, 1],
+          optionalNumbers(raw.scale, 3, `${what} scale`) ?? [1, 1, 1]
+        ),
+  };
 }
 
 // --- transforms ------------------------------------------------------------
@@ -118,13 +245,7 @@ function multiply(a: Mat4, b: Mat4): Mat4 {
   return out;
 }
 
-function localMatrix(node: GltfNode): Mat4 {
-  if (node.matrix?.length === 16) return node.matrix.slice();
-
-  const [tx, ty, tz] = node.translation ?? [0, 0, 0];
-  const [qx, qy, qz, qw] = node.rotation ?? [0, 0, 0, 1];
-  const [sx, sy, sz] = node.scale ?? [1, 1, 1];
-
+function composeTrs([tx, ty, tz]: number[], [qx, qy, qz, qw]: number[], [sx, sy, sz]: number[]): Mat4 {
   const x2 = qx + qx, y2 = qy + qy, z2 = qz + qz;
   const xx = qx * x2, xy = qx * y2, xz = qx * z2;
   const yy = qy * y2, yz = qy * z2, zz = qz * z2;
@@ -198,41 +319,121 @@ function union(a: Bounds | null, b: Bounds | null): Bounds | null {
 
 type FlatNode = { index: number; name: string; world: Mat4; node: GltfNode; parents: string[] };
 
-/** Depth-first walk accumulating world matrices and the ancestor name chain. */
-function flatten(gltf: Gltf): FlatNode[] {
-  const nodes = gltf.nodes ?? [];
-  const sceneRoots = gltf.scenes?.[gltf.scene ?? 0]?.nodes ?? nodes.map((_, i) => i);
+/**
+ * References past the end of `nodes` from one referrer: how many, the first few
+ * distinct indices, and whether more distinct ones followed. Fixed size however
+ * many references there are.
+ */
+type Missing = { count: number; sample: number[]; more: boolean };
+
+const MISSING_SAMPLE = 5;
+
+const noMissing = (): Missing => ({ count: 0, sample: [], more: false });
+
+function noteMissing(missing: Missing, index: number): void {
+  missing.count++;
+  if (missing.sample.includes(index)) return;
+  if (missing.sample.length < MISSING_SAMPLE) missing.sample.push(index);
+  else missing.more = true;
+}
+
+function danglingIssue(
+  referrer: string,
+  kind: "root" | "child",
+  missing: Missing,
+  nodeCount: number,
+  object?: string
+): ParseIssue {
+  const what = missing.count === 1 ? `a ${kind}` : `${missing.count} ${kind === "root" ? "roots" : "children"}`;
+  const list = missing.sample.join(", ") + (missing.more ? ", …" : "");
+  return {
+    level: "error",
+    code: "node.dangling-reference",
+    message: `${referrer} lists ${what} past the last node (the file has ${nodeCount} nodes): ${list}. Skipped; re-export the file.`,
+    ...(object ? { object } : {}),
+  };
+}
+
+/**
+ * Pre-order walk accumulating world matrices and the ancestor name chain, in
+ * file order, as the recursive walk did.
+ *
+ * An explicit stack rather than recursion, so a deep chain stops at MAX_DEPTH
+ * with a GlbFormatError instead of overflowing the call stack. The stack holds
+ * one frame per level of the current path, each with a cursor into its node's
+ * children, never one entry per child reference: a node that lists the same
+ * child a million times costs a million cursor steps, not a million stack
+ * entries. The walk's memory grows with the node count, not the reference count.
+ *
+ * A root or child index past the end of `nodes` is skipped, as the recursive
+ * walk did, and reported as one error per referrer: the rest of the file still
+ * parses.
+ */
+function flatten(gltf: Gltf, issues: ParseIssue[]): FlatNode[] {
+  const nodeCount = gltf.nodes.length;
   const out: FlatNode[] = [];
   const seen = new Set<number>();
+  const stack: { entry: FlatNode; childParents: string[]; next: number; missing: Missing }[] = [];
 
-  const walk = (index: number, parentWorld: Mat4, parents: string[]) => {
+  const visit = (index: number, parentWorld: Mat4, parents: string[]) => {
     if (seen.has(index)) return; // defensive: a malformed cycle must not hang the parse
     seen.add(index);
-    const node = nodes[index];
-    if (!node) return;
-    const world = multiply(parentWorld, localMatrix(node));
-    const name = node.name ?? "";
-    out.push({ index, name, world, node, parents });
-    for (const child of node.children ?? []) walk(child, world, [...parents, name]);
+    if (parents.length > MAX_DEPTH) {
+      throw new GlbFormatError(`Node hierarchy is deeper than ${MAX_DEPTH} levels.`);
+    }
+    const node = readNode(gltf, index);
+    const entry = { index, name: node.name, world: multiply(parentWorld, node.local), node, parents };
+    out.push(entry);
+    stack.push({ entry, childParents: [...parents, node.name], next: 0, missing: noMissing() });
   };
 
-  for (const root of sceneRoots) walk(root, IDENTITY, []);
+  const missingRoots = noMissing();
+  for (const root of gltf.roots) {
+    if (root >= nodeCount) {
+      noteMissing(missingRoots, root);
+      continue;
+    }
+    visit(root, IDENTITY, []);
+
+    while (stack.length > 0) {
+      const frame = stack[stack.length - 1];
+      const { entry } = frame;
+      if (frame.next === entry.node.children.length) {
+        stack.pop();
+        if (frame.missing.count > 0) {
+          const label = entry.name ? `Node ${entry.index} ("${entry.name}")` : `Node ${entry.index}`;
+          issues.push(danglingIssue(label, "child", frame.missing, nodeCount, entry.name || undefined));
+        }
+        continue;
+      }
+      const child = entry.node.children[frame.next++];
+      if (child >= nodeCount) noteMissing(frame.missing, child);
+      else visit(child, entry.world, frame.childParents);
+    }
+  }
+  if (missingRoots.count > 0) issues.push(danglingIssue("The scene", "root", missingRoots, nodeCount));
   return out;
 }
 
 /** World AABB of a node's own mesh, from accessor min/max. No geometry decode. */
 function meshBounds(gltf: Gltf, entry: FlatNode): Bounds | null {
-  const mesh = entry.node.mesh === undefined ? undefined : gltf.meshes?.[entry.node.mesh];
-  if (!mesh) return null;
+  const meshIndex = entry.node.mesh;
+  if (meshIndex === undefined) return null;
+  const mesh = item(gltf.meshes, meshIndex, "mesh");
 
   let box: Bounds | null = null;
-  for (const primitive of mesh.primitives ?? []) {
-    const accessorIndex = primitive.attributes?.POSITION;
+  for (const [p, primitive] of optionalArray(mesh.primitives, `mesh ${meshIndex} primitives`).entries()) {
+    const what = `mesh ${meshIndex} primitive ${p}`;
+    if (!isRecord(primitive)) malformed(`${what} must be an object`);
+    const attributes = optionalRecord(primitive.attributes, `${what} attributes`);
+    const accessorIndex = optionalIndex(attributes?.POSITION, `${what} POSITION`);
     if (accessorIndex === undefined) continue;
-    const accessor = gltf.accessors?.[accessorIndex];
-    const min = accessor?.min;
-    const max = accessor?.max;
-    if (!min || !max || min.length < 3 || max.length < 3) continue;
+    const accessor = item(gltf.accessors, accessorIndex, "accessor");
+    // An accessor without bounds contributes nothing, as before; bounds of the
+    // wrong type are a malformed file.
+    if (accessor.min === undefined || accessor.max === undefined) continue;
+    const min = optionalNumbers(accessor.min, 3, `accessor ${accessorIndex} min`)!;
+    const max = optionalNumbers(accessor.max, 3, `accessor ${accessorIndex} max`)!;
 
     for (const x of [min[0], max[0]]) {
       for (const y of [min[1], max[1]]) {
@@ -288,9 +489,13 @@ function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): 
     return null;
   }
 
-  const camera = gltf.cameras?.[entry.node.camera];
-  const ortho = camera?.orthographic;
-  if (camera?.type !== "orthographic" || !ortho?.xmag || !ortho?.ymag) {
+  const camera = item(gltf.cameras, entry.node.camera, "camera");
+  const what = `camera ${entry.node.camera}`;
+  const type = optionalString(camera.type, `${what} type`);
+  const ortho = optionalRecord(camera.orthographic, `${what} orthographic`);
+  const xmag = optionalNumber(ortho?.xmag, `${what} xmag`);
+  const ymag = optionalNumber(ortho?.ymag, `${what} ymag`);
+  if (type !== "orthographic" || !xmag || !ymag) {
     errors.push({
       level: "error",
       code: "minimap.not-orthographic",
@@ -317,7 +522,6 @@ function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): 
     return null;
   }
 
-  const { xmag, ymag } = ortho;
   const halfX = Math.abs(xmag * right.x) + Math.abs(ymag * up.x);
   const halfZ = Math.abs(xmag * right.z) + Math.abs(ymag * up.z);
   const centre = translationOf(m);
@@ -344,8 +548,8 @@ function minimapFromCamera(gltf: Gltf, flat: FlatNode[], errors: ParseIssue[]): 
 
 export function parseGlb(input: ParseInput): ParseResult {
   const gltf = readGltf(input.bytes);
-  const flat = flatten(gltf);
   const errors: ParseIssue[] = [];
+  const flat = flatten(gltf, errors);
 
   const rooms: Room[] = [];
   const artworks: Artwork[] = [];

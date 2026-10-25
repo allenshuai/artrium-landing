@@ -56,7 +56,11 @@ export type ExhibitionMap = {
 };
 
 export type ParseIssue = {
-  level: "error" | "warning";
+  /**
+   * "info" is never a parse finding. It records something about the list
+   * itself, such as the note saveImport adds when it truncates one.
+   */
+  level: "error" | "warning" | "info";
   code: string;
   message: string;
   /** The offending object name, when one applies. */
@@ -64,6 +68,52 @@ export type ParseIssue = {
 };
 
 export type ParseResult = { map: ExhibitionMap; errors: ParseIssue[] };
+
+/**
+ * Most issues one stored import carries. A real parse reports tens at worst; a
+ * longer list is truncated on save (issuesToStore in the dev portal's imports.ts).
+ */
+export const MAX_ISSUES = 500;
+
+const ISSUE_LEVELS: readonly string[] = ["error", "warning", "info"];
+
+/** A well-formed ParseIssue. Issues arrive from the browser and from storage, so neither is trusted. */
+export function isParseIssue(value: unknown): value is ParseIssue {
+  if (typeof value !== "object" || value === null) return false;
+  const i = value as Record<string, unknown>;
+  return (
+    ISSUE_LEVELS.includes(i.level as string) &&
+    typeof i.code === "string" &&
+    typeof i.message === "string" &&
+    (i.object === undefined || typeof i.object === "string")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Asset host
+// ---------------------------------------------------------------------------
+
+/**
+ * The one host exhibition assets (GLBs and minimap images) are published to.
+ * The parse route's fetch allowlist and the map's URL fields both check against
+ * it, so the two cannot drift apart.
+ */
+export const ASSET_HOST = "assets.artrium.space";
+export const ASSET_ORIGIN = `https://${ASSET_HOST}`;
+
+/**
+ * An https URL on the asset host. The literal prefix rules out another scheme,
+ * a port, credentials and look-alike hosts (`assets.artrium.space.example`);
+ * the parse rules out a string that is not a URL at all.
+ */
+export function isAssetUrl(value: unknown): value is string {
+  if (typeof value !== "string" || !value.startsWith(`${ASSET_ORIGIN}/`)) return false;
+  try {
+    return new URL(value).host === ASSET_HOST;
+  } catch {
+    return false;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Naming contract
@@ -138,7 +188,12 @@ function unknownKeys(value: unknown, allowed: string[]): string[] {
   return Object.keys(value).filter((k) => !allowed.includes(k));
 }
 
-const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+/** A finite number: NaN and ±Infinity are never a coordinate, size or extent. */
+export const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** A plain object: not null and not an array. */
+export const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
 function isVec3(v: unknown): v is Vec3 {
   const o = v as Vec3 | null;
@@ -185,6 +240,25 @@ export function validateMap(value: unknown): ParseIssue[] {
   }
   for (const key of unknownKeys(m.source, SOURCE_KEYS)) {
     err("map.unknown-field", `Unexpected source field "${key}".`, key);
+  }
+  if (typeof m.source !== "object" || m.source === null || Array.isArray(m.source)) {
+    err("map.source", "source must be an object.");
+  } else {
+    const source = m.source as Record<string, unknown>;
+    for (const key of ["filename", "hash", "url"] as const) {
+      if (source[key] !== undefined && source[key] !== null && typeof source[key] !== "string") {
+        err("map.source.invalid", `source.${key} must be a string or null.`, key);
+      }
+    }
+    if (source.bytes !== undefined && source.bytes !== null && !(isNum(source.bytes) && source.bytes >= 0)) {
+      err("map.source.invalid", "source.bytes must be a non-negative number or null.", "bytes");
+    }
+  }
+  // The gallery loads whatever this names, so it is held to the asset host. A
+  // local file stands in during development through NEXT_PUBLIC_GALLERY_MODEL_URL,
+  // never through the map.
+  if (m.assetUrl !== undefined && m.assetUrl !== null && !isAssetUrl(m.assetUrl)) {
+    err("map.asset-url", `assetUrl must be null or an ${ASSET_ORIGIN}/… URL.`);
   }
   if (!isBounds(m.bounds)) err("map.bounds", "bounds must be { min: Vec3, max: Vec3 }.");
   if (!Array.isArray(m.walls) || m.walls.length > 0) {
@@ -361,8 +435,9 @@ export function validateMinimap(value: unknown): ParseIssue[] {
   for (const [name, url] of Object.entries(variants)) {
     if (!(MINIMAP_VARIANTS as readonly string[]).includes(name)) {
       err("minimap.unknown-variant", `Unknown minimap variant "${name}". Expected ${MINIMAP_VARIANTS.join(", ")}.`, name);
-    } else if (typeof url !== "string" || !url) {
-      err("minimap.variant-url", `Variant "${name}" needs an image URL.`, name);
+    } else if (!isAssetUrl(url)) {
+      // Same rule as assetUrl: the gallery shows whatever this names.
+      err("minimap.variant-url", `Variant "${name}" must be an ${ASSET_ORIGIN}/… image URL.`, name);
     }
   }
   if (m.defaultVariant !== null && !(m.defaultVariant && m.defaultVariant in variants)) {

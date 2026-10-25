@@ -10,11 +10,14 @@ import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js'
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js'
-import { DRACO_DECODER_PATH } from '../lib/gallery-config'
 import type { ExhibitionMap, Spawn } from '../lib/exhibition-map/schema'
 import type { Pose } from '../lib/exhibition/minimap'
 import Minimap, { type PoseSink } from './Minimap'
 import { ARTWORKS, ARTWORK_NAMES, getArtworkConfig, type ArtworkConfig } from './artworks'
+
+// Here rather than in gallery-config.ts, which holds the server-only route slug
+// and so must stay out of this client bundle.
+const DRACO_DECODER_PATH = 'https://www.gstatic.com/draco/versioned/decoders/1.5.7/'
 
 const ARCH_PATH = "M95.7731 0C42.8754 0 0 42.8827 0 95.7731V191.546H191.546V95.7731C191.546 42.8827 148.671 0 95.7731 0Z"
 const ARCH_COLORS = ["#A2DEF8", "#F69C9F", "#FBF5AF"] as const
