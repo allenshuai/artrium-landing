@@ -37,6 +37,30 @@ function isValidEmail(value: string): boolean {
 const TICKET_COLOR = "#3F3A36";
 const CREAM = "#FFF8F2";
 
+// Same caps as /api/waitlist.
+const NAME_MAX = 100;
+const EMAIL_MAX = 254;
+
+type SubmitStatus = "success" | "invalid" | "rejected" | "busy" | "unavailable" | "error";
+
+const STATUS_TEXT: Record<SubmitStatus, string> = {
+  success: "success!!!",
+  invalid: "invalid email",
+  rejected: "check your name and email",
+  busy: "too many tries, wait a few minutes",
+  unavailable: "sign-ups are paused, try again later",
+  error: "submission failed, try again",
+};
+const IDLE_TEXT = "(to become testing user)";
+
+/** What a failed /api/waitlist response means for the person submitting. */
+function failureStatus(httpStatus: number): SubmitStatus {
+  if (httpStatus === 400) return "rejected";
+  if (httpStatus === 429) return "busy";
+  if (httpStatus === 503) return "unavailable";
+  return "error";
+}
+
 function formatTodayLong(date: Date): string {
   const dayName = date.toLocaleDateString("en-US", { weekday: "long" });
   const monthName = date.toLocaleDateString("en-US", { month: "long" });
@@ -89,7 +113,7 @@ export function TicketPopup({
 }) {
   const [submitActive, setSubmitActive] = useState(false);
   const [submitHovered, setSubmitHovered] = useState(false);
-  const [submitStatus, setSubmitStatus] = useState<null | "success" | "invalid" | "error">(null);
+  const [submitStatus, setSubmitStatus] = useState<SubmitStatus | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const { long: todayLong, short: todayShort } = useToday();
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -132,8 +156,9 @@ export function TicketPopup({
     };
   }, [open]);
   useEffect(() => {
-    if (submitStatus !== "invalid" && submitStatus !== "error") return;
-    const t = setTimeout(() => setSubmitStatus(null), 2000);
+    if (submitStatus === null || submitStatus === "success") return;
+    // The server's messages are longer than "invalid email": leave them up longer.
+    const t = setTimeout(() => setSubmitStatus(null), submitStatus === "invalid" ? 2000 : 4000);
     return () => clearTimeout(t);
   }, [submitStatus]);
 
@@ -171,7 +196,7 @@ export function TicketPopup({
         setSubmittedData({ name, email });
         setSubmitStatus("success");
       } else {
-        setSubmitStatus("error");
+        setSubmitStatus(failureStatus(res.status));
       }
     } catch {
       setSubmitStatus("error");
@@ -353,6 +378,7 @@ export function TicketPopup({
               <input
                 ref={nameInputRef}
                 type="text"
+                maxLength={NAME_MAX}
                 placeholder="Type your name"
                 className="bg-transparent text-base outline-none placeholder:opacity-70"
                 style={{ ...inputStyle, width: "14ch", minWidth: "14ch" }}
@@ -360,6 +386,7 @@ export function TicketPopup({
               <input
                 ref={emailInputRef}
                 type="email"
+                maxLength={EMAIL_MAX}
                 placeholder="Type your email"
                 className="bg-transparent text-base outline-none placeholder:opacity-70"
                 style={{ ...inputStyle, width: "20ch", minWidth: "20ch" }}
@@ -392,18 +419,11 @@ export function TicketPopup({
                 <p
                   className="min-w-0 text-xs"
                   style={{
-                    color:
-                      submitStatus === "success" ? "#16a34a" : submitStatus === "invalid" || submitStatus === "error" ? "#dc2626" : TICKET_COLOR,
+                    color: submitStatus === "success" ? "#16a34a" : submitStatus ? "#dc2626" : TICKET_COLOR,
                     opacity: submitStatus ? 1 : 0.8,
                   }}
                 >
-                  {submitStatus === "success"
-                    ? "success!!!"
-                    : submitStatus === "invalid"
-                      ? "invalid email"
-                      : submitStatus === "error"
-                        ? "submission failed, try again"
-                        : "(to become testing user)"}
+                  {submitStatus ? STATUS_TEXT[submitStatus] : IDLE_TEXT}
                 </p>
                 <button
                   type="button"
@@ -433,6 +453,7 @@ export function TicketPopup({
                     <input
                       ref={nameInputRef}
                       type="text"
+                      maxLength={NAME_MAX}
                       placeholder="Type your name"
                       className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
                       style={inputStyle}
@@ -440,6 +461,7 @@ export function TicketPopup({
                     <input
                       ref={emailInputRef}
                       type="email"
+                      maxLength={EMAIL_MAX}
                       placeholder="Type your email"
                       className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:opacity-70"
                       style={inputStyle}
@@ -472,22 +494,11 @@ export function TicketPopup({
                   <p
                     className="text-xs"
                     style={{
-                      color:
-                        submitStatus === "success"
-                          ? "#16a34a"
-                          : submitStatus === "invalid" || submitStatus === "error"
-                            ? "#dc2626"
-                            : TICKET_COLOR,
+                      color: submitStatus === "success" ? "#16a34a" : submitStatus ? "#dc2626" : TICKET_COLOR,
                       opacity: submitStatus ? 1 : 0.8,
                     }}
                   >
-                    {submitStatus === "success"
-                      ? "success!!!"
-                      : submitStatus === "invalid"
-                        ? "invalid email"
-                        : submitStatus === "error"
-                          ? "submission failed, try again"
-                          : "(to become testing user)"}
+                    {submitStatus ? STATUS_TEXT[submitStatus] : IDLE_TEXT}
                   </p>
                 </div>
               </header>
