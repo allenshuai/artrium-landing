@@ -16,7 +16,7 @@ import {
   type ImportSummary,
   type StoredImport,
 } from "./imports";
-import { chooseStore, isNotFound, isUnavailable, StorageError, storeFailure } from "./storeConfig";
+import { chooseStore, isNotFound, isUnavailable, readEnv, StorageError, storeFailure } from "./storeConfig";
 
 export { isUnavailable, StorageError, type StorageFailure } from "./storeConfig";
 
@@ -32,9 +32,7 @@ export { isUnavailable, StorageError, type StorageFailure } from "./storeConfig"
 // after `vercel env pull --environment=production` WILL talk to the production
 // store; that is what pulling production means.
 //
-// Credentials are left to the SDK: with no `token` option it resolves
-// VERCEL_OIDC_TOKEN + BLOB_STORE_ID, then BLOB_READ_WRITE_TOKEN, trimming both
-// and ignoring blanks (resolveBlobAuth / readEnv in @vercel/blob).
+// Credentials: see blobAuth() below.
 
 const PREFIX = "dev-exhibition-imports/";
 const LOCAL_DIR = ".local-imports";
@@ -48,6 +46,23 @@ const ACCESS = "private";
 
 function localStoreActive(): boolean {
   return chooseStore(process.env) === "local";
+}
+
+/**
+ * The `token` option for every SDK call: BLOB_READ_WRITE_TOKEN (trimmed) when it
+ * is set, and nothing otherwise.
+ *
+ * Without a `token` option the SDK tries VERCEL_OIDC_TOKEN + BLOB_STORE_ID
+ * before BLOB_READ_WRITE_TOKEN (resolveBlobAuth in @vercel/blob). On an
+ * opted-in local run, `vercel env pull` may have left a stale OIDC token and a
+ * BLOB_STORE_ID in .env.local, which would then shadow a valid read-write token.
+ * Passing the token when it is set keeps an explicit token first; leaving the
+ * option out when it is not lets a deployment that has only BLOB_STORE_ID
+ * authenticate with the OIDC token Vercel injects, which the SDK refreshes.
+ */
+function blobAuth(): { token?: string } {
+  const token = readEnv(process.env, "BLOB_READ_WRITE_TOKEN");
+  return token ? { token } : {};
 }
 
 /** Logs a store failure in full and returns what the routes answer it with. */
@@ -124,7 +139,7 @@ async function localIds(): Promise<string[]> {
 async function readBlob(pathname: string): Promise<StoredImport | null> {
   let text: string;
   try {
-    const result = await get(pathname, { access: ACCESS });
+    const result = await get(pathname, { access: ACCESS, ...blobAuth() });
     if (!result || result.statusCode !== 200) return null;
     text = await new Response(result.stream).text();
   } catch (e) {
@@ -140,7 +155,7 @@ async function blobPathnames(): Promise<string[]> {
   let cursor: string | undefined;
   try {
     do {
-      const page = await list({ prefix: PREFIX, cursor });
+      const page = await list({ prefix: PREFIX, cursor, ...blobAuth() });
       pathnames.push(...page.blobs.map((b) => b.pathname).filter((p) => p.endsWith(".json")));
       cursor = page.hasMore ? page.cursor : undefined;
     } while (cursor);
@@ -157,6 +172,7 @@ async function blobSave(doc: StoredImport): Promise<void> {
       access: ACCESS,
       contentType: "application/json",
       addRandomSuffix: false,
+      ...blobAuth(),
     });
   } catch (e) {
     // The SDK has no error class for an access-mode mismatch: the API's answer
@@ -229,9 +245,9 @@ export async function listImports(): Promise<ImportSummary[]> {
     if (result.status === "fulfilled") {
       if (result.value) summaries.push(result.value);
     } else {
-      // A store failure was already logged in full where it was caught.
-      const reason = result.reason instanceof StorageError ? result.reason.message : result.reason;
-      console.error(`${LOG} skipping ${keys[i]}:`, reason);
+      // A StorageError came through failed(), which logged it in full with its
+      // key where it was caught. Anything else has not been logged yet.
+      if (!(result.reason instanceof StorageError)) console.error(`${LOG} reading ${keys[i]} failed:`, result.reason);
       failures.push(result.reason);
     }
   });
