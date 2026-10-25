@@ -3,6 +3,7 @@
 import html2canvas from "html2canvas";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { EMAIL_MAX, NAME_MAX, validateWaitlistInput } from "@/app/lib/waitlist/validation";
 
 const MOBILE_BREAKPOINT_PX = 768;
 const SMALL_SCREEN_QUERY = `(max-width: ${MOBILE_BREAKPOINT_PX - 1}px)`;
@@ -30,35 +31,23 @@ function useIsSmallScreen() {
   );
 }
 
-function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-}
-
 const TICKET_COLOR = "#3F3A36";
 const CREAM = "#FFF8F2";
 
-// Same caps as /api/waitlist.
-const NAME_MAX = 100;
-const EMAIL_MAX = 254;
+/** The line under the form: green on success, red with a reason otherwise. */
+type SubmitStatus = { ok: boolean; text: string };
 
-type SubmitStatus = "success" | "invalid" | "rejected" | "busy" | "unavailable" | "error";
-
-const STATUS_TEXT: Record<SubmitStatus, string> = {
-  success: "success!!!",
-  invalid: "invalid email",
-  rejected: "check your name and email",
-  busy: "too many tries, wait a few minutes",
-  unavailable: "sign-ups are paused, try again later",
-  error: "submission failed, try again",
-};
+const SUCCESS: SubmitStatus = { ok: true, text: "success!!!" };
+const FAILED_TEXT = "submission failed, try again";
 const IDLE_TEXT = "(to become testing user)";
 
 /** What a failed /api/waitlist response means for the person submitting. */
-function failureStatus(httpStatus: number): SubmitStatus {
-  if (httpStatus === 400) return "rejected";
-  if (httpStatus === 429) return "busy";
-  if (httpStatus === 503) return "unavailable";
-  return "error";
+function failureText(httpStatus: number, serverError: unknown): string {
+  // A 400 carries validateWaitlistInput's reason, the one the form itself gives.
+  if (httpStatus === 400 && typeof serverError === "string" && serverError) return serverError;
+  if (httpStatus === 429) return "too many tries, wait a few minutes";
+  if (httpStatus === 503) return "sign-ups are paused, try again later";
+  return FAILED_TEXT;
 }
 
 function formatTodayLong(date: Date): string {
@@ -156,9 +145,9 @@ export function TicketPopup({
     };
   }, [open]);
   useEffect(() => {
-    if (submitStatus === null || submitStatus === "success") return;
-    // The server's messages are longer than "invalid email": leave them up longer.
-    const t = setTimeout(() => setSubmitStatus(null), submitStatus === "invalid" ? 2000 : 4000);
+    if (submitStatus === null || submitStatus.ok) return;
+    // Failure reasons are sentences: leave them up long enough to read.
+    const t = setTimeout(() => setSubmitStatus(null), 4000);
     return () => clearTimeout(t);
   }, [submitStatus]);
 
@@ -173,16 +162,16 @@ export function TicketPopup({
   if (!open) return null;
 
   const submitHandler = async () => {
-    const name = nameInputRef.current?.value?.trim() ?? "";
-    const email = emailInputRef.current?.value?.trim() ?? "";
-    if (!name) {
-      setSubmitStatus("invalid");
+    // The route's own rules, so anything refused here would be refused there too.
+    const input = validateWaitlistInput({
+      name: nameInputRef.current?.value,
+      email: emailInputRef.current?.value,
+    });
+    if (!input.ok) {
+      setSubmitStatus({ ok: false, text: input.error });
       return;
     }
-    if (!isValidEmail(email)) {
-      setSubmitStatus("invalid");
-      return;
-    }
+    const { name, email } = input;
     setSubmitting(true);
     setSubmitStatus(null);
     try {
@@ -191,15 +180,15 @@ export function TicketPopup({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email }),
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      const data = (await res.json().catch(() => ({}))) as { ok?: unknown; error?: unknown };
       if (data?.ok === true) {
         setSubmittedData({ name, email });
-        setSubmitStatus("success");
+        setSubmitStatus(SUCCESS);
       } else {
-        setSubmitStatus(failureStatus(res.status));
+        setSubmitStatus({ ok: false, text: failureText(res.status, data?.error) });
       }
     } catch {
-      setSubmitStatus("error");
+      setSubmitStatus({ ok: false, text: FAILED_TEXT });
     } finally {
       setSubmitting(false);
     }
@@ -419,11 +408,11 @@ export function TicketPopup({
                 <p
                   className="min-w-0 text-xs"
                   style={{
-                    color: submitStatus === "success" ? "#16a34a" : submitStatus ? "#dc2626" : TICKET_COLOR,
+                    color: submitStatus?.ok ? "#16a34a" : submitStatus ? "#dc2626" : TICKET_COLOR,
                     opacity: submitStatus ? 1 : 0.8,
                   }}
                 >
-                  {submitStatus ? STATUS_TEXT[submitStatus] : IDLE_TEXT}
+                  {submitStatus ? submitStatus.text : IDLE_TEXT}
                 </p>
                 <button
                   type="button"
@@ -494,11 +483,11 @@ export function TicketPopup({
                   <p
                     className="text-xs"
                     style={{
-                      color: submitStatus === "success" ? "#16a34a" : submitStatus ? "#dc2626" : TICKET_COLOR,
+                      color: submitStatus?.ok ? "#16a34a" : submitStatus ? "#dc2626" : TICKET_COLOR,
                       opacity: submitStatus ? 1 : 0.8,
                     }}
                   >
-                    {submitStatus ? STATUS_TEXT[submitStatus] : IDLE_TEXT}
+                    {submitStatus ? submitStatus.text : IDLE_TEXT}
                   </p>
                 </div>
               </header>
