@@ -28,6 +28,10 @@ jobs:
         run: npx tsc --noEmit
       - name: Test
         run: npm test
+
+      # Needs no env vars: every env read has a default or happens at request time.
+      - name: Build
+        run: npm run build
       # Blocks on critical only: the remaining highs are the @vercel/blob ->
       # @vercel/oidc -> @vercel/cli-config -> zod chain, which only clears when
       # Vercel publishes a fixed @vercel/blob. Raise to --audit-level=high then.
