@@ -276,11 +276,20 @@ function Gallery({
   onLoaded: () => void
   onSceneReady: (scene: THREE.Group) => void
 }) {
-  const [scene, setScene] = useState<THREE.Group | null>(null)
+  // Tagged with the load that produced it, so a scene from an earlier URL or
+  // reload is never shown while the next one loads.
+  const [loadedScene, setLoadedScene] = useState<{
+    modelUrl: string
+    reloadKey: number
+    scene: THREE.Group
+  } | null>(null)
+  const scene =
+    loadedScene && loadedScene.modelUrl === modelUrl && loadedScene.reloadKey === reloadKey
+      ? loadedScene.scene
+      : null
 
   useEffect(() => {
     let cancelled = false
-    setScene(null)
 
     const dracoLoader = new DRACOLoader()
     dracoLoader.setDecoderPath(DRACO_DECODER_PATH)
@@ -298,7 +307,7 @@ function Gallery({
             obj.receiveShadow = true
           }
         })
-        setScene(gltf.scene)
+        setLoadedScene({ modelUrl, reloadKey, scene: gltf.scene })
         onLoaded()
         onSceneReady(gltf.scene)
       },

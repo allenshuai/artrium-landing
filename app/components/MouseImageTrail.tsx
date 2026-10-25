@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTracePositions } from "../contexts/TracePositionsContext";
 import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { ARCH_IMAGE_SOURCES } from "../lib/arch-images";
@@ -56,21 +56,21 @@ export function MouseImageTrail({ disabled = false }: { disabled?: boolean }) {
     );
   }, [traces, setPositions]);
 
-  const pruneAndFade = useCallback(() => {
-    const now = Date.now();
-    setTraces((prev) => {
-      const next = prev.filter((t) => now - t.createdAt < FADE_DURATION_MS);
-      return next.length === prev.length ? prev : next;
-    });
-    rafRef.current = requestAnimationFrame(pruneAndFade);
-  }, []);
-
   useEffect(() => {
+    // Drop faded traces every frame; the loop re-schedules itself until cleanup.
+    const pruneAndFade = () => {
+      const now = Date.now();
+      setTraces((prev) => {
+        const next = prev.filter((t) => now - t.createdAt < FADE_DURATION_MS);
+        return next.length === prev.length ? prev : next;
+      });
+      rafRef.current = requestAnimationFrame(pruneAndFade);
+    };
     rafRef.current = requestAnimationFrame(pruneAndFade);
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
     };
-  }, [pruneAndFade]);
+  }, []);
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {

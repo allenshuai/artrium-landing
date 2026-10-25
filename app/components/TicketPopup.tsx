@@ -48,6 +48,15 @@ function formatTodayShort(date: Date): string {
   return `${m}/${d}/${y}`;
 }
 
+function subscribeNever() {
+  return () => {};
+}
+
+/** Today's date, formatted on the client only: the server and hydration render "". */
+function useTodayFormatted(format: (date: Date) => string): string {
+  return useSyncExternalStore(subscribeNever, () => format(new Date()), () => "");
+}
+
 export function TicketPopup({
   open,
   onClose,
@@ -59,8 +68,8 @@ export function TicketPopup({
   const [submitHovered, setSubmitHovered] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<null | "success" | "invalid" | "error">(null);
   const [submitting, setSubmitting] = useState(false);
-  const [todayLong, setTodayLong] = useState("");
-  const [todayShort, setTodayShort] = useState("");
+  const todayLong = useTodayFormatted(formatTodayLong);
+  const todayShort = useTodayFormatted(formatTodayShort);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const emailInputRef = useRef<HTMLInputElement>(null);
   const ticketDownloadRef = useRef<HTMLDivElement>(null);
@@ -84,15 +93,14 @@ export function TicketPopup({
       .catch((err) => console.error("Ticket capture failed:", err));
   }, [submittedData]);
 
-  useEffect(() => {
-    const now = new Date();
-    setTodayLong(formatTodayLong(now));
-    setTodayShort(formatTodayShort(now));
-  }, []);
-  useEffect(() => {
+  // Opening clears the last submit status; closing drops the submitted ticket.
+  // Adjusted during render rather than in an effect.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (open) setSubmitStatus(null);
-    if (!open) setSubmittedData(null);
-  }, [open]);
+    else setSubmittedData(null);
+  }
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;

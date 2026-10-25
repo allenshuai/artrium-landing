@@ -66,10 +66,13 @@ export default function MinimapPreview({
   const [showLabels, setShowLabels] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // A newly parsed map replaces any calibration in progress.
-  useEffect(() => {
+  // A newly parsed map replaces any calibration in progress (adjusted during
+  // render, so no frame shows the old calibration over the new map).
+  const [minimapFor, setMinimapFor] = useState(map);
+  if (minimapFor !== map) {
+    setMinimapFor(map);
     setMinimap(defaultMinimap(map));
-  }, [map]);
+  }
 
   useEffect(() => () => {
     if (imageUrl) URL.revokeObjectURL(imageUrl);
