@@ -32,6 +32,25 @@ export type ImportSummary = {
   warningCount: number;
 };
 
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/**
+ * A stored document read back, or null when it is not one. Checks what the hub
+ * and the detail page dereference, nothing more: the map was validated when it
+ * was saved and is not re-validated here, so an import saved under older rules
+ * still lists. A missing issue list reads as empty.
+ */
+export function asStoredImport(value: unknown): StoredImport | null {
+  if (!isRecord(value)) return null;
+  const { id, savedAt, map } = value;
+  if (typeof id !== "string" || typeof savedAt !== "string" || !isRecord(map) || !isRecord(map.source)) {
+    return null;
+  }
+  if (![map.rooms, map.artworks, map.spawns, map.walls].every(Array.isArray)) return null;
+  return { ...(value as StoredImport), errors: Array.isArray(value.errors) ? value.errors : [] };
+}
+
 export function summarize(stored: StoredImport): ImportSummary {
   // One malformed stored issue (`[null]`, say) used to throw here, and the hub
   // lists every import, so it took the whole list down with it.
@@ -41,7 +60,7 @@ export function summarize(stored: StoredImport): ImportSummary {
   return {
     id: stored.id,
     savedAt: stored.savedAt,
-    filename: stored.map.source.filename,
+    filename: typeof stored.map.source.filename === "string" ? stored.map.source.filename : null,
     rooms: stored.map.rooms.length,
     artworks: stored.map.artworks.length,
     spawns: stored.map.spawns.length,
