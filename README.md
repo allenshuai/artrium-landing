@@ -33,9 +33,29 @@ npm run lint && npx tsc --noEmit && npm test && npm run build
 | `MAPBOX_TOKEN` | Server token for geocoding listings that have no coordinates. |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | Browser token for drawing the map. |
 | `WAITLIST_SCRIPT_URL` | Google Apps Script the waitlist form posts to; unset, `/api/waitlist` answers 503. |
+| `WAITLIST_SHARED_SECRET` | Optional; sent to that script as a `secret` body field so it can refuse posts that skip `/api/waitlist`. See [Waitlist](#waitlist). |
 | `NEXT_PUBLIC_GALLERY_MODEL_URL` | Development only: stands in for the published gallery GLB. |
 | `NEXT_PUBLIC_GALLERY_MINIMAP_URL` | Development only: stands in for the published minimap image. |
 | `NEXT_PUBLIC_GALLERY_ROUTE_SLUG` | The unlisted slug the gallery is served at, `/exhibition/<slug>`. |
+
+## Waitlist
+
+The form in `TicketPopup` posts to `/api/waitlist`, which checks the input with
+`app/lib/waitlist/validation.ts` (the popup uses the same module), rate-limits per client (60 per 15
+minutes, loose enough for a shared venue network), and relays to the Apps Script at
+`WAITLIST_SCRIPT_URL`.
+
+**Outstanding:** the script still accepts any post. The old hardcoded URL is in git history, so anyone
+can call it directly and skip the checks. Someone with access to the script should:
+
+1. In `doPost(e)`, parse `e.postData.contents`, compare its `secret` with a value kept in the script's
+   properties, return `{ ok: false }` on a mismatch, and never write `secret` to the sheet. It has to be
+   a body field: the `e` object Apps Script passes to `doPost` has no request headers.
+2. Deploy that as a new deployment and archive the old one, so the URL in git history stops answering,
+   then set the new URL as `WAITLIST_SCRIPT_URL` and the same secret as `WAITLIST_SHARED_SECRET` in Vercel.
+
+`WAITLIST_SHARED_SECRET` can be set before the script checks it, provided the script writes only the
+fields it reads by name (name, email, source) and not the whole body.
 
 ## Internal portals
 
