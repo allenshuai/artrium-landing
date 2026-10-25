@@ -46,18 +46,6 @@ body.arch-cursor-active .cursor-custom {
   }
 }
 
-@keyframes arch-trail-fade {
-  0% {
-    opacity: 0.95;
-  }
-  30% {
-    opacity: 0.95;
-  }
-  100% {
-    opacity: 0;
-  }
-}
-
 /* ── Homepage animations ── */
 @keyframes fadeSlideUp {
   from { opacity: 0; transform: translateY(32px); }
