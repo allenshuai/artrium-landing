@@ -1,7 +1,10 @@
 name: ci
 
+# PR pushes run via pull_request only; push is limited to main so each PR push
+# runs once instead of twice.
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -9,7 +12,9 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a main run: a second merge must not cut off the first one's
+  # audit and build report.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   check:
@@ -24,6 +29,10 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - name: Lint
         run: npm run lint
+      # next-env.d.ts is gitignored; without it tsc lacks next/image-types/global
+      # and the route types, so generate it before typechecking.
+      - name: Generate Next types
+        run: npx next typegen
       - name: Typecheck
         run: npx tsc --noEmit
       - name: Test
