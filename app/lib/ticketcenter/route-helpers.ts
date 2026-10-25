@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import { LEAD_COOKIE, VIEW_COOKIE, verifyLeadToken, verifyViewToken } from "./auth";
 import { MeetingNotFoundError, TicketNotFoundError } from "./sheets";
 import { OrgExistsError, OrgNotFoundError, OutreachNotConfiguredError } from "./outreach-sheets";
+import { RowMovedError } from "./sheet-rows";
 
 // proxy.ts gates the whole portal, but handlers and pages check the view cookie
 // again so that a proxy bypass or a matcher mistake does not expose the Sheets.
@@ -50,7 +51,7 @@ export function errorResponse(err: unknown): NextResponse {
   ) {
     return NextResponse.json({ error: err.message }, { status: 404 });
   }
-  if (err instanceof OrgExistsError) {
+  if (err instanceof OrgExistsError || err instanceof RowMovedError) {
     return NextResponse.json({ error: err.message }, { status: 409 });
   }
   if (err instanceof OutreachNotConfiguredError) {
