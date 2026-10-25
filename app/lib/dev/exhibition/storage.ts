@@ -27,7 +27,10 @@ export { isUnavailable, StorageError, type StorageFailure } from "./storeConfig"
 // `next dev` uses a local directory instead, so the portal is testable offline
 // and a local session never writes to the store the deployed portal reads.
 // Which one applies, and when a missing store throws, is chooseStore's call
-// (storeConfig.ts).
+// (storeConfig.ts): a production build uses the Blob store without needing
+// VERCEL=1, unless VERCEL_ENV is "development". So a local production build run
+// after `vercel env pull --environment=production` WILL talk to the production
+// store; that is what pulling production means.
 //
 // Credentials are left to the SDK: with no `token` option it resolves
 // VERCEL_OIDC_TOKEN + BLOB_STORE_ID, then BLOB_READ_WRITE_TOKEN, trimming both

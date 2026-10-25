@@ -26,8 +26,14 @@ const PULLED = {
   BLOB_STORE_ID: "store_abc123",
 };
 
-/** A deployed function with a connected store. */
+/** A deployed function with a connected store, with System Environment Variables exposed. */
 const DEPLOYED = { NODE_ENV: "production", VERCEL: "1", VERCEL_ENV: "production", BLOB_STORE_ID: "store_abc123" };
+
+/**
+ * The same deployment with "Automatically expose System Environment Variables"
+ * off: no VERCEL, no VERCEL_ENV. The connected store's BLOB_STORE_ID remains.
+ */
+const DEPLOYED_NO_SYSTEM_VARS = { NODE_ENV: "production", BLOB_STORE_ID: "store_abc123" };
 
 function unavailable(fn: () => unknown, label: string) {
   assert.throws(fn, (e: unknown) => {
@@ -68,7 +74,7 @@ test("DEV_EXHIBITION_USE_BLOB=1 opts a local run into the Blob store, and needs 
   );
 });
 
-test("a Vercel deployment uses the Blob store, and throws without one as before", () => {
+test("a production build uses the Blob store, and throws without one", () => {
   assert.equal(chooseStore(DEPLOYED), "blob");
   assert.equal(chooseStore({ ...DEPLOYED, VERCEL_ENV: "preview" }), "blob");
   assert.equal(
@@ -79,12 +85,36 @@ test("a Vercel deployment uses the Blob store, and throws without one as before"
   unavailable(() => chooseStore({ ...DEPLOYED, BLOB_STORE_ID: "   " }), "blank store id");
 });
 
-test("a production build off Vercel has no default store", () => {
-  // `next start` on a laptop, with or without pulled variables.
-  unavailable(() => chooseStore({ NODE_ENV: "production" }), "bare next start");
-  unavailable(() => chooseStore({ ...PULLED, NODE_ENV: "production" }), "next start after env pull");
-  unavailable(() => chooseStore({ NODE_ENV: "production", BLOB_READ_WRITE_TOKEN: "rw" }), "token, no opt-in");
-  assert.equal(chooseStore({ NODE_ENV: "production", BLOB_READ_WRITE_TOKEN: "rw", DEV_EXHIBITION_USE_BLOB: "1" }), "blob");
+test("a production build does not need VERCEL=1 to find its store", () => {
+  // A deployment with System Environment Variables not exposed used to take the
+  // off-Vercel branch and answer 503 on every imports endpoint.
+  assert.equal(chooseStore(DEPLOYED_NO_SYSTEM_VARS), "blob");
+  assert.equal(chooseStore({ NODE_ENV: "production", BLOB_READ_WRITE_TOKEN: "rw" }), "blob");
+  assert.equal(chooseStore({ ...DEPLOYED_NO_SYSTEM_VARS, DEV_EXHIBITION_USE_BLOB: "1" }), "blob");
+  unavailable(() => chooseStore({ NODE_ENV: "production" }), "no store, no VERCEL variables");
+  unavailable(() => chooseStore({ NODE_ENV: "production", BLOB_STORE_ID: " ", BLOB_READ_WRITE_TOKEN: "" }), "blank store");
+});
+
+test("a production build with VERCEL_ENV=development is local unless opted in", () => {
+  // `next build && next start` after `vercel env pull` (development is its default).
+  const pulledBuild = { ...PULLED, NODE_ENV: "production" };
+  assert.equal(chooseStore(pulledBuild), "local");
+  assert.equal(chooseStore({ ...pulledBuild, BLOB_READ_WRITE_TOKEN: "rw" }), "local");
+  assert.equal(chooseStore({ NODE_ENV: "production", VERCEL_ENV: " development ", BLOB_STORE_ID: "store_abc123" }), "local");
+  for (const flag of ["0", "true", ""]) {
+    assert.equal(chooseStore({ ...pulledBuild, DEV_EXHIBITION_USE_BLOB: flag }), "local", `flag ${JSON.stringify(flag)}`);
+  }
+
+  assert.equal(chooseStore({ ...pulledBuild, DEV_EXHIBITION_USE_BLOB: "1" }), "blob");
+  unavailable(
+    () => chooseStore({ NODE_ENV: "production", VERCEL_ENV: "development", DEV_EXHIBITION_USE_BLOB: "1" }),
+    "opted in, no store"
+  );
+
+  // Pulling production is asking for production: that build uses the real store.
+  assert.equal(chooseStore({ ...pulledBuild, VERCEL_ENV: "production" }), "blob");
+  // `next dev` stays local whichever environment was pulled.
+  assert.equal(chooseStore({ ...PULLED, VERCEL_ENV: "production" }), "local");
 });
 
 test("every store failure but a 404 becomes a 503 with a fixed message", () => {

@@ -48,40 +48,39 @@ export function blobConfigured(env: Env): boolean {
   return Boolean(readEnv(env, "BLOB_STORE_ID") || readEnv(env, "BLOB_READ_WRITE_TOKEN"));
 }
 
-/**
- * A deployed Vercel function. VERCEL alone does not say so: `vercel env pull`
- * can write VERCEL="1", with VERCEL_ENV="development", into .env.local, which
- * `next dev` loads. A deployment is always a production build.
- */
-function onVercelDeployment(env: Env): boolean {
-  return env.VERCEL === "1" && env.NODE_ENV === "production" && env.VERCEL_ENV !== "development";
-}
-
 const NO_STORE =
   "No Blob store is connected: neither BLOB_STORE_ID (set when a Vercel Blob store is connected to this project) nor BLOB_READ_WRITE_TOKEN is present. Connect a store and redeploy; imports cannot be persisted without it.";
-
-const PRODUCTION_OFF_VERCEL =
-  "This production build is not running on Vercel, so it has no import store. Set DEV_EXHIBITION_USE_BLOB=1 with BLOB_READ_WRITE_TOKEN to use the Blob store.";
 
 export type StoreChoice = "blob" | "local";
 
 /**
- * The Blob store on a Vercel deployment, or anywhere DEV_EXHIBITION_USE_BLOB=1
- * asks for it. Otherwise `next dev` uses the gitignored .local-imports/, even
- * when `vercel env pull` has put BLOB_STORE_ID and an OIDC token in .env.local:
- * a local session must not write to the store the deployed portal reads.
+ * Which store this process uses. Decided from NODE_ENV and VERCEL_ENV only, not
+ * from VERCEL: VERCEL="1" exists only while the project's "Automatically expose
+ * System Environment Variables" setting is on, so a real deployment can lack it.
+ *
+ * - `next dev` (NODE_ENV is not "production") uses the gitignored
+ *   .local-imports/ unless DEV_EXHIBITION_USE_BLOB=1, even when `vercel env
+ *   pull` has put BLOB_STORE_ID and an OIDC token in .env.local: a local
+ *   session must not write to the store the deployed portal reads.
+ * - A production build uses the Blob store, except where VERCEL_ENV is
+ *   "development". No deployment has that value; it is what `vercel env pull`
+ *   writes for the development environment, so that build is a local one and
+ *   needs the same opt-in as `next dev`.
+ *
+ * A local production build run after `vercel env pull --environment=production`
+ * has the production variables, and so WILL use the production store: that is
+ * what pulling production means.
  *
  * Throws StorageError("unavailable") when the Blob store is wanted but has no
- * credentials, and for a production build off Vercel without the opt-in, rather
- * than silently accepting writes that go nowhere.
+ * credentials, rather than silently accepting writes that go nowhere.
  */
 export function chooseStore(env: Env): StoreChoice {
-  if (readEnv(env, "DEV_EXHIBITION_USE_BLOB") === "1" || onVercelDeployment(env)) {
-    if (blobConfigured(env)) return "blob";
-    throw new StorageError(NO_STORE, "unavailable");
-  }
-  if (env.NODE_ENV === "production") throw new StorageError(PRODUCTION_OFF_VERCEL, "unavailable");
-  return "local";
+  const optedIn = readEnv(env, "DEV_EXHIBITION_USE_BLOB") === "1";
+  const pulledDevelopment = readEnv(env, "VERCEL_ENV") === "development";
+  const blobByDefault = env.NODE_ENV === "production" && !pulledDevelopment;
+  if (!optedIn && !blobByDefault) return "local";
+  if (blobConfigured(env)) return "blob";
+  throw new StorageError(NO_STORE, "unavailable");
 }
 
 /** A Blob SDK 404. get() answers a missing blob with null instead, so this is the rarer path. */
