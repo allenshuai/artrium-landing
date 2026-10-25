@@ -263,30 +263,25 @@ function ArtworkDetailOverlay({ artwork, onClose }: { artwork: ArtworkConfig; on
 
 function Gallery({
   modelUrl,
-  reloadKey,
   onProgress,
   onError,
   onLoaded,
   onSceneReady,
 }: {
   modelUrl: string
-  reloadKey: number
   onProgress: (loaded: number, total: number) => void
   onError: (error: unknown) => void
   onLoaded: () => void
   onSceneReady: (scene: THREE.Group) => void
 }) {
-  // Tagged with the load that produced it, so a scene from an earlier URL or
-  // reload is never shown while the next one loads.
+  // Tagged with the URL it was loaded from, so a scene from an earlier URL is
+  // never shown while the next one loads. A reload needs no tag: the parent
+  // remounts this component (key={reloadKey}), which starts it with no scene.
   const [loadedScene, setLoadedScene] = useState<{
     modelUrl: string
-    reloadKey: number
     scene: THREE.Group
   } | null>(null)
-  const scene =
-    loadedScene && loadedScene.modelUrl === modelUrl && loadedScene.reloadKey === reloadKey
-      ? loadedScene.scene
-      : null
+  const scene = loadedScene && loadedScene.modelUrl === modelUrl ? loadedScene.scene : null
 
   useEffect(() => {
     let cancelled = false
@@ -307,7 +302,7 @@ function Gallery({
             obj.receiveShadow = true
           }
         })
-        setLoadedScene({ modelUrl, reloadKey, scene: gltf.scene })
+        setLoadedScene({ modelUrl, scene: gltf.scene })
         onLoaded()
         onSceneReady(gltf.scene)
       },
@@ -327,7 +322,7 @@ function Gallery({
       dracoLoader.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadKey, modelUrl])
+  }, [modelUrl])
 
   if (!scene) return null
   return <primitive object={scene} />
@@ -653,7 +648,6 @@ export default function GalleryViewer({
         <Gallery
           key={reloadKey}
           modelUrl={modelUrl}
-          reloadKey={reloadKey}
           onProgress={handleProgress}
           onError={handleError}
           onLoaded={handleLoaded}
