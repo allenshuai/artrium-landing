@@ -7,13 +7,15 @@ import { rowToDirectory } from "./outreach";
 describe("locateRows", () => {
   it("keeps each record's real sheet row across blank and keyless rows", () => {
     // As values.get returns Tickets!A2:M: interior blank rows come back as [].
+    // Valid type and status, so rowToTicket has nothing to warn about.
+    const ticket = (number: string, title: string) => [number, title, "design", "P", "Backlog"];
     const rows = [
-      ["ART-001", "First"],
+      ticket("ART-001", "First"),
       [],
-      ["", "no number"],
-      ["ART-002", "Second"],
-      ["  ", "whitespace key"],
-      ["ART-003", "Third"],
+      ticket("", "no number"),
+      ticket("ART-002", "Second"),
+      ticket("  ", "whitespace key"),
+      ticket("ART-003", "Third"),
     ];
     expect(locateRows(rows, rowToTicket).map((r) => [r.item.number, r.sheetRow])).toEqual([
       ["ART-001", 2],

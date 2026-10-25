@@ -9,6 +9,7 @@ import {
   isValidStatus,
   isValidTypes,
   linkParts,
+  NOTES_MAX,
   safeLinks,
   splitLinks,
   validateDashboard,
@@ -378,6 +379,20 @@ describe("validateDashboard", () => {
     expect(err(validateDashboard({ phone: "1".repeat(61) }))).toBe("phone is too long");
     expect(err(validateDashboard({ notes: "x".repeat(5001) }))).toBe("notes is too long");
     expect(err(validateDashboard({ status: "Done" }))).toBe("Invalid status");
+  });
+});
+
+describe("NOTES_MAX", () => {
+  it("is the one notes cap for meetings, the Directory and the Dashboard", () => {
+    const notes = "x".repeat(NOTES_MAX);
+    const over = notes + "x";
+    expect(NOTES_MAX).toBe(5000);
+    expect(validateMeeting({ notes }, true).ok).toBe(true);
+    expect(err(validateMeeting({ notes: over }, true))).toBe("Notes are too long");
+    expect(validateDirectory({ notes }, true).ok).toBe(true);
+    expect(err(validateDirectory({ notes: over }, true))).toBe("notes is too long");
+    expect(validateDashboard({ notes }).ok).toBe(true);
+    expect(err(validateDashboard({ notes: over }))).toBe("notes is too long");
   });
 });
 

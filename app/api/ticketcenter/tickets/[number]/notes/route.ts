@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { updateTicketNotes } from "@/app/lib/ticketcenter/sheets";
+import { NOTES_MAX } from "@/app/lib/ticketcenter/validate";
 import { errorResponse, readJsonObject, requireLead } from "@/app/lib/ticketcenter/route-helpers";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export async function PATCH(
   const body = await readJsonObject(req);
   if (body instanceof NextResponse) return body;
   const { notes } = body;
-  if (typeof notes !== "string" || notes.length > 5000) {
+  if (typeof notes !== "string" || notes.length > NOTES_MAX) {
     return NextResponse.json({ error: "Invalid notes" }, { status: 400 });
   }
 

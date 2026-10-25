@@ -24,6 +24,8 @@ import {
 
 export const PROJECT_MAX = 80;
 export const DESCRIPTION_MAX = 5000;
+/** Ticket notes (PATCH /tickets/[number]/notes), meeting notes and outreach notes. */
+export const NOTES_MAX = 5000;
 export const NAME_MAX = 60;
 export const ASSIGNEES_MAX = 20;
 
@@ -278,7 +280,7 @@ export function validateMeeting(
 
   const notes = str("notes");
   if (notes !== undefined) {
-    if (notes.length > 5000) return { ok: false, error: "Notes are too long" };
+    if (notes.length > NOTES_MAX) return { ok: false, error: "Notes are too long" };
     out.notes = notes;
   } else if (!partial) out.notes = "";
 
@@ -310,7 +312,7 @@ const STRING_CAPS: Record<string, number> = {
   website: 300,
   social: 300,
   fit: 2000,
-  notes: 5000,
+  notes: NOTES_MAX,
   contactName: 120,
   role: 120,
   email: 200,
