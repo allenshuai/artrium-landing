@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Lint
+        run: npm run lint
+      - name: Typecheck
+        run: npx tsc --noEmit
+      - name: Test
+        run: npm test
+      # Blocks on critical only: the remaining highs are the @vercel/blob ->
+      # @vercel/oidc -> @vercel/cli-config -> zod chain, which only clears when
+      # Vercel publishes a fixed @vercel/blob. Raise to --audit-level=high then.
+      - name: Audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=critical
