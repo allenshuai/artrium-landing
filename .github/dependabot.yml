@@ -1,0 +1,21 @@
+# Weekly dependency updates, grouped so a PR carries all minor and patch bumps
+# at once. Majors arrive on their own. CI (lint, typecheck, test, build, audit)
+# runs on each PR, which is the gate.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
