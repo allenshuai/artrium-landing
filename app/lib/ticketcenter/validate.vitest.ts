@@ -20,6 +20,10 @@ import {
 const ticket = (over: Record<string, unknown> = {}) => ({ title: "Do it", types: ["design"], project: "P", ...over });
 const err = (r: { ok: boolean; error?: string }) => (r.ok ? null : r.error);
 
+// Real URLs with commas inside them.
+const MAPS = "https://www.google.com/maps/place/x/@42.36,-71.05,17z";
+const ZOOM = "https://zoom.us/j/123?pwd=a,b";
+
 describe("isPlainObject", () => {
   it("accepts objects only", () => {
     expect(isPlainObject({})).toBe(true);
@@ -61,6 +65,13 @@ describe("links", () => {
     }
   });
 
+  it("isHttpUrl takes one URL, never two typed into one value", () => {
+    expect(isHttpUrl(MAPS)).toBe(true);
+    expect(isHttpUrl(ZOOM)).toBe(true);
+    expect(isHttpUrl("https://a.example/x https://b.example")).toBe(false);
+    expect(isHttpUrl("https://a.example/x\nhttps://b.example")).toBe(false);
+  });
+
   it("isValidLink takes one or more http(s) URLs, or blank", () => {
     expect(isValidLink("")).toBe(true);
     expect(isValidLink("  ")).toBe(true);
@@ -71,8 +82,26 @@ describe("links", () => {
     expect(isValidLink(undefined)).toBe(false);
   });
 
-  it("splitLinks splits on spaces, commas and newlines", () => {
+  it("splitLinks splits on whitespace, newlines and a comma followed by whitespace", () => {
     expect(splitLinks(" a, b\n c  ")).toEqual(["a", "b", "c"]);
+    expect(splitLinks("a,b")).toEqual(["a,b"]);
+  });
+
+  it("never splits inside a URL", () => {
+    expect(splitLinks(MAPS)).toEqual([MAPS]);
+    expect(splitLinks(ZOOM)).toEqual([ZOOM]);
+    expect(isValidLink(MAPS)).toBe(true);
+    expect(isValidLink(ZOOM)).toBe(true);
+    expect(safeLinks(MAPS)).toEqual([MAPS]);
+    expect(safeLinks(`${ZOOM}\n${MAPS}`)).toEqual([ZOOM, MAPS]);
+  });
+
+  it("splits a comma-separated list at a comma followed by whitespace, the next URL or the end", () => {
+    expect(splitLinks(`${ZOOM}, ${MAPS}`)).toEqual([ZOOM, MAPS]);
+    expect(splitLinks(`${MAPS},${ZOOM},HTTP://c.example`)).toEqual([MAPS, ZOOM, "HTTP://c.example"]);
+    expect(splitLinks(`${ZOOM},\n${MAPS},`)).toEqual([ZOOM, MAPS]);
+    expect(isValidLink(`${ZOOM}, ${MAPS}`)).toBe(true);
+    expect(safeLinks(`${ZOOM}, ${MAPS}, ${ZOOM}`)).toEqual([ZOOM, MAPS]);
   });
 
   it("safeLinks keeps only the distinct http(s) parts of a cell typed in the Sheet", () => {
@@ -168,6 +197,8 @@ describe("validateNewTicket", () => {
     expect(err(validateNewTicket(ticket({ dueDate: "tomorrow" })))).toBe("Due date must be YYYY-MM-DD");
     expect(err(validateNewTicket(ticket({ link: "javascript:alert(1)" })))).toBe("Link must be an http(s) URL");
     expect(validateNewTicket(ticket({ link: "https://a.example https://b.example" })).ok).toBe(true);
+    const r = validateNewTicket(ticket({ link: `${MAPS}, ${ZOOM}` }));
+    expect(r.ok && r.input.link).toBe(`${MAPS}, ${ZOOM}`);
   });
 });
 
@@ -194,6 +225,7 @@ describe("validateMeeting", () => {
     expect(err(validateMeeting({ notes: "x".repeat(5001) }, true))).toBe("Notes are too long");
     expect(err(validateMeeting({ link: "javascript:alert(1)" }, true))).toBe("Link must be an http(s) URL");
     expect(validateMeeting({ link: "https://zoom.us/j/1 https://when2meet.com/?1" }, true).ok).toBe(true);
+    expect(validateMeeting({ link: ZOOM }, true)).toEqual({ ok: true, fields: { link: ZOOM } });
   });
 });
 
@@ -222,6 +254,17 @@ describe("validateDirectory", () => {
     expect(err(validateDirectory({ social: "Instagram" }, true))).toBe("Social must be an http(s) URL");
   });
 
+  it("takes website and social as one whole URL each, commas included", () => {
+    const r = validateDirectory({ website: ` ${MAPS} `, social: ZOOM }, true);
+    expect(r.ok && [r.fields.website, r.fields.social]).toEqual([MAPS, ZOOM]);
+    expect(err(validateDirectory({ website: "https://a.example, https://b.example" }, true))).toBe(
+      "Website must be an http(s) URL"
+    );
+    expect(err(validateDirectory({ social: "https://a.example/x https://b.example" }, true))).toBe(
+      "Social must be an http(s) URL"
+    );
+  });
+
   it("keeps the length caps, list rules, priority and status", () => {
     expect(err(validateDirectory({ website: "https://a.example/" + "x".repeat(300) }, true))).toBe("website is too long");
     expect(err(validateDirectory({ city: "x".repeat(121) }, true))).toBe("city is too long");
@@ -244,6 +287,12 @@ describe("validateDashboard", () => {
     expect(validateDashboard({ website: "https://a.example", social: "http://b.example" }).ok).toBe(true);
     expect(err(validateDashboard({ website: "data:text/html,x" }))).toBe("Website must be an http(s) URL");
     expect(err(validateDashboard({ social: "@artrium" }))).toBe("Social must be an http(s) URL");
+  });
+
+  it("takes website and social as one whole URL each, commas included", () => {
+    expect(validateDashboard({ website: MAPS, social: ZOOM })).toEqual({ ok: true, fields: { website: MAPS, social: ZOOM } });
+    expect(err(validateDashboard({ website: "https://a.example https://b.example" }))).toBe("Website must be an http(s) URL");
+    expect(err(validateDashboard({ social: `${ZOOM}, ${MAPS}` }))).toBe("Social must be an http(s) URL");
   });
 
   it("checks email shape, date lengths and caps", () => {

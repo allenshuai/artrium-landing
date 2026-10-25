@@ -53,7 +53,13 @@ export function isValidDueDate(d: unknown): d is string {
   return !Number.isNaN(new Date(d + "T00:00:00Z").getTime());
 }
 
+/**
+ * One http(s) URL. Whitespace anywhere is refused: `new URL` would encode the
+ * space in "https://a.example/x https://b.example" and accept two values typed
+ * into one cell as a single URL.
+ */
 export function isHttpUrl(s: string): boolean {
+  if (/\s/.test(s)) return false;
   try {
     const u = new URL(s);
     return u.protocol === "http:" || u.protocol === "https:";
@@ -62,15 +68,23 @@ export function isHttpUrl(s: string): boolean {
   }
 }
 
-/** Accepts one or more http(s) URLs separated by spaces, commas, or newlines. */
+/** Accepts one or more http(s) URLs, separated as splitLinks reads them, or blank. */
 export function isValidLink(l: unknown): l is string {
   if (typeof l !== "string") return false;
   if (l.trim() === "") return true;
   return splitLinks(l).every(isHttpUrl);
 }
 
+/**
+ * Where one URL in a link cell ends and the next begins: whitespace (including
+ * newlines), or a comma followed by whitespace, the end of the cell or the next
+ * "http". Any other comma is part of the URL, as in a Google Maps
+ * "@42.36,-71.05,17z" or a Zoom "?pwd=a,b".
+ */
+const LINK_SEPARATOR = /\s+|,(?=\s|$|https?:\/\/)/i;
+
 export function splitLinks(l: string): string[] {
-  return l.split(/[\s,]+/).filter(Boolean);
+  return l.split(LINK_SEPARATOR).filter(Boolean);
 }
 
 /**
@@ -250,10 +264,13 @@ const STRING_CAPS: Record<string, number> = {
   nextAction: 1000,
 };
 
-/** Website and social, when given, must be http(s) URLs (one or more, like a link cell). */
+/**
+ * Website and social hold one URL each, so the whole (trimmed) value must be
+ * one http(s) URL. They are never split, so a comma inside the URL is kept.
+ */
 function checkUrls(f: { website?: string; social?: string }): string | null {
-  if (f.website && !isValidLink(f.website)) return "Website must be an http(s) URL";
-  if (f.social && !isValidLink(f.social)) return "Social must be an http(s) URL";
+  if (f.website && !isHttpUrl(f.website)) return "Website must be an http(s) URL";
+  if (f.social && !isHttpUrl(f.social)) return "Social must be an http(s) URL";
   return null;
 }
 
