@@ -184,8 +184,6 @@ export function ArtriumLogo() {
   >([]);
   const [lastRevealed, setLastRevealed] = useState<{ x: number; y: number } | null>(null);
   const fogCanvasRef = useRef<HTMLCanvasElement>(null);
-  /** Collage layer; the fog-drawing effect reveals it once the fog covers it. */
-  const collageRef = useRef<HTMLDivElement>(null);
   const rafIdRef = useRef<number | null>(null);
   const [viewportSize, setViewportSize] = useState(
     () => ({ w: 1920, h: 1080 })
@@ -420,10 +418,12 @@ export function ArtriumLogo() {
     if (!canvas || !archPathForCanvas.current) return;
     const w = viewportSize.w;
     const h = viewportSize.h;
-    canvas.width = w;
-    canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    // Sizing the canvas sets its width attribute, which drops the CSS cream
+    // background (see the canvas below) now that the bitmap covers the collage.
+    canvas.width = w;
+    canvas.height = h;
     ctx.fillStyle = CREAM;
     ctx.fillRect(0, 0, w, h);
     if (BRUSHING_ENABLED) {
@@ -447,8 +447,6 @@ export function ArtriumLogo() {
       }
       ctx.globalCompositeOperation = "source-over";
     }
-    // The fog now covers the collage, so it can be shown without flashing.
-    if (collageRef.current) collageRef.current.style.opacity = "1";
   }, [revealedPositions, overlay.x, overlay.y, overlay.width, overlay.height, overlay.mounted, hasUserDragged, drag.active, viewportSize.w, viewportSize.h]);
 
   const handlePointerDown = useCallback(
@@ -543,29 +541,28 @@ export function ArtriumLogo() {
 
   return (
     <>
-      {/* Collage: only when brushing enabled; hidden until fog is drawn so it never flashes on load */}
+      {/* Collage: only when brushing enabled; the fog canvas above covers it except where brushed */}
       {BRUSHING_ENABLED && (
         <div
-          ref={collageRef}
           className="fixed inset-0 z-10"
           style={{
             width: "100vw",
             height: "100vh",
             pointerEvents: "none",
-            // Raised to 1 by the fog-drawing effect after its first draw.
-            opacity: 0,
-            transition: "opacity 0.15s ease-out",
           }}
         >
           <PhotoGridBackground opacity={1} />
         </div>
       )}
-      {/* Fog canvas: solid cream (or holes when brushing); only when brushing so page bg shows when disabled */}
+      {/* Fog canvas: solid cream (or holes when brushing); only when brushing so page bg shows when disabled.
+          Until its first draw (an unsized canvas has no width attribute) a CSS background in the same
+          cream keeps the collage covered, from the server HTML on, so the collage needs no hidden-until-drawn
+          toggle. The background must not outlive that first draw: it would show through the brushed holes. */}
       {BRUSHING_ENABLED && (
         <canvas
           ref={fogCanvasRef}
-          className="fixed left-0 top-0 z-11 pointer-events-none"
-          style={{ width: "100vw", height: "100vh", display: "block" }}
+          className="fixed left-0 top-0 z-11 pointer-events-none [&:not([width])]:bg-(--fog-cream)"
+          style={{ width: "100vw", height: "100vh", display: "block", "--fog-cream": CREAM } as React.CSSProperties}
         />
       )}
       {/* Mask def: holes where trace images overlap logo (objectBoundingBox 0–1) */}
