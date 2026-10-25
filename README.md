@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# artrium-landing
 
-## Getting Started
+The public site at [artrium.space](https://artrium.space): the landing page, `/map` (events, jobs,
+opportunities and community listings from the Artrium app's API, on Mapbox), `/exhibition` (the
+virtual 3D gallery), team, updates and privacy pages, and the waitlist form. It also hosts two
+internal portals.
+Next.js 16 (App Router), React 19, Tailwind 4, deployed on Vercel.
 
-First, run the development server:
+## Run it
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm ci
+cp .env.example .env.local   # fill in what you need; everything is optional for the public pages
+npm run dev                  # http://localhost:3000
+npm run lint && npx tsc --noEmit && npm test && npm run build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Environment
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| Variable | What it does |
+|---|---|
+| `TICKETCENTER_PASSWORD` | Shared team password for `/ticketcenter`. |
+| `TICKETCENTER_COOKIE_SECRET` | Signs the Ticket Center's `tc_view` and `tc_lead` cookies. |
+| `TICKETCENTER_LEADS` | Lead passcodes, `Name:passcode,Name2:passcode2`; a lead can edit tickets, meetings and the directory. |
+| `DEV_EXHIBITION_PASSWORD` | Password for the `/dev/exhibition` portal. |
+| `DEV_EXHIBITION_COOKIE_SECRET` | Signs that portal's `dev_ex_view` cookie. |
+| `BLOB_STORE_ID` | Set by Vercel when a Blob store is connected; saved imports go there (OIDC auth). |
+| `BLOB_READ_WRITE_TOKEN` | Blob token for code running outside Vercel; leave both empty locally to use `.local-imports/`. |
+| `GOOGLE_SHEET_ID` | The spreadsheet behind the Ticket Center. |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Service account that reads and writes that sheet. |
+| `GOOGLE_PRIVATE_KEY` | That service account's private key. |
+| `ARTRIUM_API_BASE_URL` | Artrium app API that `/api/map-pins` reads; unset, the map is empty. |
+| `MAPBOX_TOKEN` | Server token for geocoding listings that have no coordinates. |
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | Browser token for drawing the map. |
+| `WAITLIST_SCRIPT_URL` | Google Apps Script the waitlist form posts to; unset, `/api/waitlist` answers 503. |
+| `NEXT_PUBLIC_GALLERY_MODEL_URL` | Development only: stands in for the published gallery GLB. |
+| `NEXT_PUBLIC_GALLERY_MINIMAP_URL` | Development only: stands in for the published minimap image. |
+| `NEXT_PUBLIC_GALLERY_ROUTE_SLUG` | The unlisted slug the gallery is served at, `/exhibition/<slug>`. |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Internal portals
 
-## Learn More
+Both are gated in `proxy.ts`, each by its own signed cookie, so one portal's login never opens the other.
 
-To learn more about Next.js, take a look at the following resources:
+- **`/ticketcenter`**: the team's tickets, meetings and outreach, stored in Google Sheets. The team
+  password (`TICKETCENTER_PASSWORD`) lets you view; a lead passcode (`TICKETCENTER_LEADS`) also lets you edit.
+- **`/dev/exhibition`**: the GLB parser, which turns an exhibition `.glb` into map JSON, and the
+  saved imports. Gated by `DEV_EXHIBITION_PASSWORD`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Their login endpoints are rate-limited per client (`app/lib/security/ratelimit.ts`).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## CI
 
-## Deploy on Vercel
+`.github/workflows/ci.yml` runs on every pull request and on pushes to `main`: lint, `next typegen`,
+typecheck, tests, build (no env vars needed), and `npm audit` of production dependencies at critical.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Known issues
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [`docs/FRONTEND_REVIEW.md`](docs/FRONTEND_REVIEW.md) for the frontend review and what must land
+before the exhibition opens.
