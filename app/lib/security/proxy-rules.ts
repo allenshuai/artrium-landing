@@ -54,18 +54,37 @@ export function isAuthPath(portal: Portal, pathname: string): boolean {
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+type HeaderReader = { get(name: string): string | null };
+
+/** The first value of a header that proxies may append to ("https, http"). */
+function firstValue(headers: HeaderReader, name: string): string | undefined {
+  return headers.get(name)?.split(",")[0].trim() || undefined;
+}
+
+/**
+ * The origin the browser addressed. Behind TLS termination the request URL is
+ * the internal `http://host` while the browser sends `Origin: https://host`, so
+ * the scheme comes from `X-Forwarded-Proto` and the host from
+ * `X-Forwarded-Host`, then `Host`, each falling back to the request URL. A page
+ * cannot forge these cross-site: Host is set by the browser, and a custom
+ * header makes the request preflighted, which nothing here answers.
+ */
+export function expectedOrigin(headers: HeaderReader, requestUrl: string): string {
+  const url = new URL(requestUrl);
+  const proto = firstValue(headers, "x-forwarded-proto")?.toLowerCase();
+  const scheme = proto === "http" || proto === "https" ? proto : url.protocol.slice(0, -1);
+  const host = firstValue(headers, "x-forwarded-host") ?? firstValue(headers, "host") ?? url.host;
+  return new URL(`${scheme}://${host}`).origin;
+}
+
 /**
  * True for reads, and for writes the browser says came from this origin:
  * `Sec-Fetch-Site: same-origin` (or `none`, a user-initiated request), or an
- * `Origin` equal to the request's own. SameSite=Lax already withholds the
- * cookies cross-site; this also refuses same-site callers such as script on
- * another artrium.space host.
+ * `Origin` equal to the one the browser addressed (expectedOrigin).
+ * SameSite=Lax already withholds the cookies cross-site; this also refuses
+ * same-site callers such as script on another artrium.space host.
  */
-export function isSameOriginWrite(
-  method: string,
-  headers: { get(name: string): string | null },
-  requestUrl: string
-): boolean {
+export function isSameOriginWrite(method: string, headers: HeaderReader, requestUrl: string): boolean {
   if (SAFE_METHODS.has(method.toUpperCase())) return true;
 
   const site = headers.get("sec-fetch-site");
@@ -74,7 +93,7 @@ export function isSameOriginWrite(
   const origin = headers.get("origin");
   if (!origin) return false;
   try {
-    return new URL(origin).origin === new URL(requestUrl).origin;
+    return new URL(origin).origin === expectedOrigin(headers, requestUrl);
   } catch {
     return false;
   }

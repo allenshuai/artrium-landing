@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isAuthPath, isSameOriginWrite, PORTALS, portalFor } from "./proxy-rules";
+import { expectedOrigin, isAuthPath, isSameOriginWrite, PORTALS, portalFor } from "./proxy-rules";
 
 const URL_ = "https://artrium.space/api/ticketcenter/tickets";
 const h = (init: Record<string, string> = {}) => new Headers(init);
@@ -98,5 +98,40 @@ describe("isSameOriginWrite", () => {
   it("compares against the request's own origin, including dev ports", () => {
     expect(isSameOriginWrite("POST", h({ origin: "http://localhost:3000" }), "http://localhost:3000/api/ticketcenter/auth/view")).toBe(true);
     expect(isSameOriginWrite("POST", h({ origin: "http://localhost:3001" }), "http://localhost:3000/api/ticketcenter/auth/view")).toBe(false);
+  });
+
+  describe("behind TLS termination", () => {
+    // The app sees plain http on an internal host; the browser addressed https://artrium.space.
+    const INTERNAL = "http://10.0.0.5:3000/api/ticketcenter/auth/view";
+    const fwd = { "x-forwarded-proto": "https", "x-forwarded-host": "artrium.space", host: "10.0.0.5:3000" };
+
+    it("accepts the browser's https Origin, including on login", () => {
+      expect(isSameOriginWrite("POST", h({ ...fwd, origin: "https://artrium.space" }), INTERNAL)).toBe(true);
+    });
+
+    it("still refuses other origins, and the internal one", () => {
+      expect(isSameOriginWrite("POST", h({ ...fwd, origin: "http://artrium.space" }), INTERNAL)).toBe(false);
+      expect(isSameOriginWrite("POST", h({ ...fwd, origin: "https://evil.example" }), INTERNAL)).toBe(false);
+      expect(isSameOriginWrite("POST", h({ ...fwd, origin: "https://app.artrium.space" }), INTERNAL)).toBe(false);
+      expect(isSameOriginWrite("POST", h({ ...fwd, origin: "http://10.0.0.5:3000" }), INTERNAL)).toBe(false);
+    });
+
+    it("builds the expected origin from the forwarded headers, then Host, then the URL", () => {
+      expect(expectedOrigin(h(fwd), INTERNAL)).toBe("https://artrium.space");
+      expect(expectedOrigin(h({ "x-forwarded-proto": "https", host: "artrium.space" }), INTERNAL)).toBe("https://artrium.space");
+      expect(expectedOrigin(h({ host: "artrium.space" }), INTERNAL)).toBe("http://artrium.space");
+      expect(expectedOrigin(h({ "x-forwarded-proto": "https" }), INTERNAL)).toBe("https://10.0.0.5:3000");
+      expect(expectedOrigin(h(), INTERNAL)).toBe("http://10.0.0.5:3000");
+    });
+
+    it("takes the first value of a list, drops default ports and ignores an unknown scheme", () => {
+      expect(expectedOrigin(h({ "x-forwarded-proto": "https, http", "x-forwarded-host": "artrium.space, 10.0.0.5" }), INTERNAL)).toBe(
+        "https://artrium.space"
+      );
+      expect(expectedOrigin(h({ "x-forwarded-proto": "HTTPS", "x-forwarded-host": "artrium.space:443" }), INTERNAL)).toBe(
+        "https://artrium.space"
+      );
+      expect(expectedOrigin(h({ "x-forwarded-proto": "javascript", host: "artrium.space" }), INTERNAL)).toBe("http://artrium.space");
+    });
   });
 });
