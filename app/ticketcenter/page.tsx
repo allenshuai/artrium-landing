@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { cookies } from "next/headers";
 import { LEAD_COOKIE, verifyLeadToken } from "@/app/lib/ticketcenter/auth";
+import { requireViewPage } from "@/app/lib/ticketcenter/route-helpers";
 import { getMeetings, getTickets } from "@/app/lib/ticketcenter/sheets";
 import type { Ticket } from "@/app/lib/ticketcenter/types";
 import type { Meeting } from "@/app/lib/ticketcenter/meetings";
@@ -9,6 +10,7 @@ import Board from "@/app/components/ticketcenter/Board";
 export const dynamic = "force-dynamic";
 
 export default async function TicketCenterPage() {
+  await requireViewPage();
   const store = await cookies();
   const lead = await verifyLeadToken(store.get(LEAD_COOKIE)?.value);
 

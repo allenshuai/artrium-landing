@@ -1,6 +1,7 @@
 import {
   TICKET_STATUSES,
   TICKET_TYPES,
+  normalizeAssignees,
   type NewTicketInput,
   type TicketStatus,
   type TicketType,
@@ -20,6 +21,13 @@ import {
   type DirectoryFields,
   type Priority,
 } from "./outreach";
+
+export const PROJECT_MAX = 80;
+export const DESCRIPTION_MAX = 5000;
+/** Ticket notes (PATCH /tickets/[number]/notes), meeting notes and outreach notes. */
+export const NOTES_MAX = 5000;
+export const NAME_MAX = 60;
+export const ASSIGNEES_MAX = 20;
 
 export function isValidStatus(s: unknown): s is TicketStatus {
   return typeof s === "string" && (TICKET_STATUSES as readonly string[]).includes(s);
@@ -43,29 +51,126 @@ export function isValidDueDate(d: unknown): d is string {
   return !Number.isNaN(new Date(d + "T00:00:00Z").getTime());
 }
 
-/** Accepts one or more http(s) URLs separated by spaces, commas, or newlines. */
+/**
+ * One http(s) URL. Whitespace anywhere is refused: `new URL` would encode the
+ * space in "https://a.example/x https://b.example" and accept two values typed
+ * into one cell as a single URL.
+ */
+export function isHttpUrl(s: string): boolean {
+  if (/\s/.test(s)) return false;
+  try {
+    const u = new URL(s);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Accepts one or more http(s) URLs, separated as splitLinks reads them, or blank. */
 export function isValidLink(l: unknown): l is string {
   if (typeof l !== "string") return false;
   if (l.trim() === "") return true;
-  return splitLinks(l).every((part) => {
-    try {
-      const u = new URL(part);
-      return u.protocol === "http:" || u.protocol === "https:";
-    } catch {
-      return false;
-    }
+  return splitLinks(l).every(isHttpUrl);
+}
+
+/**
+ * Where one URL in a link cell ends and the next begins: whitespace (including
+ * newlines), or a comma followed by whitespace, the end of the cell or the next
+ * "http". Any other comma is part of the URL, as in a Google Maps
+ * "@42.36,-71.05,17z" or a Zoom "?pwd=a,b".
+ */
+const LINK_SEPARATOR = /\s+|,(?=\s|$|https?:\/\/)/i;
+
+export function splitLinks(l: string): string[] {
+  return l.split(LINK_SEPARATOR).filter(Boolean);
+}
+
+/**
+ * The distinct parts of a link cell that are http(s) URLs. Cells can be typed
+ * straight into the Sheet, so anything read back goes through this before it
+ * reaches an href.
+ */
+export function safeLinks(l: string): string[] {
+  return [...new Set(splitLinks(l).filter(isHttpUrl))];
+}
+
+/** An http(s) URL inside free text, ending where splitLinks would end it. */
+const URL_IN_TEXT = /https?:\/\/(?:[^\s,]|,(?!\s|$|https?:\/\/))+/gi;
+
+/** Drops sentence punctuation after a URL, and a ")" or "]" the URL did not open. */
+function trimUrlEnd(url: string): string {
+  const count = (s: string, c: string) => s.split(c).length - 1;
+  let u = url;
+  for (;;) {
+    const last = u[u.length - 1];
+    if (".,;:!?'\"".includes(last)) u = u.slice(0, -1);
+    else if (last === ")" && count(u, "(") < count(u, ")")) u = u.slice(0, -1);
+    else if (last === "]" && count(u, "[") < count(u, "]")) u = u.slice(0, -1);
+    else return u;
+  }
+}
+
+export interface TextPart {
+  text: string;
+  /** Set when this part is an http(s) URL; it is then also `text`. */
+  href?: string;
+}
+
+/**
+ * A cell typed in the Sheet, cut into text and the http(s) URLs inside it, in
+ * order, so the words around a URL ("Instagram: … (DM only)") are kept. Only
+ * parts with `href` may go in an href; they have passed isHttpUrl.
+ */
+export function linkParts(text: string): TextPart[] {
+  const parts: TextPart[] = [];
+  let at = 0;
+  for (const m of text.matchAll(URL_IN_TEXT)) {
+    const url = trimUrlEnd(m[0]);
+    const start = m.index ?? 0;
+    if (!isHttpUrl(url)) continue;
+    if (start > at) parts.push({ text: text.slice(at, start) });
+    parts.push({ text: url, href: url });
+    at = start + url.length;
+  }
+  if (at < text.length) parts.push({ text: text.slice(at) });
+  return parts;
+}
+
+/**
+ * An address that can follow "mailto:" verbatim: letters, digits and ._+- before
+ * the @, dot-separated labels after it. Nothing a mailto URL would read as a
+ * header ("?", "&"), an escape ("%") or a fragment ("#"). The write side checks
+ * emails, but a cell typed in the Sheet is not checked, so anything else is
+ * shown as text rather than linked.
+ */
+const PLAIN_EMAIL =
+  /^[A-Za-z0-9._+-]+@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)+$/;
+
+export function isPlainEmail(s: string): boolean {
+  return s.length <= 254 && PLAIN_EMAIL.test(s);
+}
+
+/**
+ * Accepts up to 20 names, each non-empty and at most 60 characters once
+ * trimmed, with no commas (the Sheet stores them comma-separated).
+ */
+export function isValidAssignees(a: unknown): a is string[] {
+  if (!Array.isArray(a)) return false;
+  if (a.length > ASSIGNEES_MAX) return false;
+  return a.every((n) => {
+    if (typeof n !== "string") return false;
+    const t = n.trim();
+    return t.length > 0 && t.length <= NAME_MAX && !t.includes(",");
   });
 }
 
-export function splitLinks(l: string): string[] {
-  return l.split(/[\s,]+/).filter(Boolean);
-}
-
-/** Accepts an array of non-empty name strings under 60 chars each, deduped. */
-export function isValidAssignees(a: unknown): a is string[] {
-  if (!Array.isArray(a)) return false;
-  if (a.length > 20) return false;
-  return a.every((n) => typeof n === "string" && n.trim().length > 0 && n.length < 60);
+/**
+ * The list to check rules against and to write: trimmed, without blanks or the
+ * "TBD" placeholder, deduped, exactly as the cell will be read back. Call after
+ * isValidAssignees.
+ */
+export function cleanAssignees(a: string[]): string[] {
+  return normalizeAssignees(a);
 }
 
 /** Validates a create-ticket body. Returns a clean input or an error message. */
@@ -80,6 +185,9 @@ export function validateNewTicket(
 
   const project = typeof body.project === "string" ? body.project.trim() : "";
   if (!project) return { ok: false, error: "Project is required" };
+  if (project.length > PROJECT_MAX) {
+    return { ok: false, error: `Project must be ${PROJECT_MAX} characters or fewer` };
+  }
 
   let status: TicketStatus = "Backlog";
   if (body.status !== undefined && body.status !== "") {
@@ -93,12 +201,22 @@ export function validateNewTicket(
   const link = typeof body.link === "string" ? body.link.trim() : "";
   if (!isValidLink(link)) return { ok: false, error: "Link must be an http(s) URL" };
 
-  const assignedTo = typeof body.assignedTo === "string" ? body.assignedTo.trim() : "";
-  if (status !== "Backlog" && !assignedTo) {
+  // Same shape as PATCH /tickets/[number]/assignees: an array of names. The
+  // Backlog rule runs on the normalised list, which is also the one written, so
+  // ["TBD"] counts as no assignee.
+  let assignedTo: string[] = [];
+  if (body.assignedTo !== undefined) {
+    if (!isValidAssignees(body.assignedTo)) return { ok: false, error: "Invalid assignees" };
+    assignedTo = cleanAssignees(body.assignedTo);
+  }
+  if (status !== "Backlog" && assignedTo.length === 0) {
     return { ok: false, error: "Assignee is required unless the ticket is in Backlog" };
   }
 
   const description = typeof body.description === "string" ? body.description.trim() : "";
+  if (description.length > DESCRIPTION_MAX) {
+    return { ok: false, error: `Description must be ${DESCRIPTION_MAX} characters or fewer` };
+  }
 
   return {
     ok: true,
@@ -162,7 +280,7 @@ export function validateMeeting(
 
   const notes = str("notes");
   if (notes !== undefined) {
-    if (notes.length > 5000) return { ok: false, error: "Notes are too long" };
+    if (notes.length > NOTES_MAX) return { ok: false, error: "Notes are too long" };
     out.notes = notes;
   } else if (!partial) out.notes = "";
 
@@ -194,7 +312,7 @@ const STRING_CAPS: Record<string, number> = {
   website: 300,
   social: 300,
   fit: 2000,
-  notes: 5000,
+  notes: NOTES_MAX,
   contactName: 120,
   role: 120,
   email: 200,
@@ -205,6 +323,16 @@ const STRING_CAPS: Record<string, number> = {
   want: 2000,
   nextAction: 1000,
 };
+
+/**
+ * Website and social hold one URL each, so the whole (trimmed) value must be
+ * one http(s) URL. They are never split, so a comma inside the URL is kept.
+ */
+function checkUrls(f: { website?: string; social?: string }): string | null {
+  if (f.website && !isHttpUrl(f.website)) return "Website must be an http(s) URL";
+  if (f.social && !isHttpUrl(f.social)) return "Social must be an http(s) URL";
+  return null;
+}
 
 /**
  * Directory fields from a request body. With `partial`, missing keys stay
@@ -223,6 +351,8 @@ export function validateDirectory(body: Record<string, unknown>, partial: boolea
     } else if (!partial) out[k] = "";
   }
   if (!partial && !out.city) return { ok: false, error: "City / Area is required" };
+  const badUrl = checkUrls(out);
+  if (badUrl) return { ok: false, error: badUrl };
 
   const types = readList(body.types, "Org types");
   if (typeof types === "string") {
@@ -270,6 +400,8 @@ export function validateDashboard(body: Record<string, unknown>): Ok<Partial<Das
   if (out.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(out.email)) {
     return { ok: false, error: "Email doesn't look right" };
   }
+  const badUrl = checkUrls(out);
+  if (badUrl) return { ok: false, error: badUrl };
 
   for (const k of ["firstContact", "lastContact", "nextActionDate"] as const) {
     const v = str(k);

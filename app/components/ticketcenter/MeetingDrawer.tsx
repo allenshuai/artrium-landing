@@ -10,10 +10,41 @@ import {
   type MeetingStatus,
 } from "@/app/lib/ticketcenter/meetings";
 import { isIsoDate } from "@/app/lib/ticketcenter/types";
+import { safeLinks } from "@/app/lib/ticketcenter/validate";
 import { MEETING_COLORS } from "./typeColors";
 
 export function linkLabel(url: string): string {
   return /when2meet\.com/i.test(url) ? "Pick a time on When2meet" : "Join meeting";
+}
+
+const linkBtnCls =
+  "inline-block border border-[#3F3A36] bg-[#3F3A36] font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85";
+
+/**
+ * One button per http(s) URL in a meeting's link cell (it may hold several).
+ * Anything else typed into the Sheet is shown as text, never put in an href.
+ */
+export function MeetingLinks({ link, compact = false }: { link: string; compact?: boolean }) {
+  const links = safeLinks(link);
+  if (links.length === 0) {
+    return <span className={`break-all text-[#3F3A36]/60 ${compact ? "text-[11px]" : "mt-0.5 block"}`}>{link}</span>;
+  }
+  return (
+    <span className={`flex flex-wrap gap-1.5 ${compact ? "" : "mt-1.5"}`}>
+      {links.map((url) => (
+        <a
+          key={url}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className={`${linkBtnCls} ${compact ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs"}`}
+        >
+          {linkLabel(url)} →
+        </a>
+      ))}
+    </span>
+  );
 }
 
 export default function MeetingDrawer({
@@ -183,14 +214,7 @@ export default function MeetingDrawer({
               />
             ) : null}
             {meeting.link ? (
-              <a
-                href={meeting.link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1.5 inline-block border border-[#3F3A36] bg-[#3F3A36] px-3 py-1.5 text-xs font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85"
-              >
-                {linkLabel(meeting.link)} →
-              </a>
+              <MeetingLinks link={meeting.link} />
             ) : (
               !lead && <p className="mt-0.5 text-[#3F3A36]/40">No link yet</p>
             )}

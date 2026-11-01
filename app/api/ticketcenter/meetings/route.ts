@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { createMeeting, getMeetings } from "@/app/lib/ticketcenter/sheets";
 import { validateMeeting } from "@/app/lib/ticketcenter/validate";
-import { errorResponse, requireLead } from "@/app/lib/ticketcenter/route-helpers";
+import { errorResponse, readJsonObject, requireLead, requireView } from "@/app/lib/ticketcenter/route-helpers";
 import type { MeetingFields } from "@/app/lib/ticketcenter/meetings";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const denied = await requireView();
+  if (denied) return denied;
   try {
     const meetings = await getMeetings();
     return NextResponse.json({ meetings, fetchedAt: new Date().toISOString() });
@@ -16,15 +18,11 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const lead = await requireLead();
+  const lead = await requireLead(req);
   if (lead instanceof NextResponse) return lead;
 
-  let body: Record<string, unknown>;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid request" }, { status: 400 });
-  }
+  const body = await readJsonObject(req);
+  if (body instanceof NextResponse) return body;
 
   const result = validateMeeting(body, false);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });

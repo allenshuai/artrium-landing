@@ -52,7 +52,7 @@ export default function NewTicketForm({
           types,
           project,
           status,
-          assignedTo: assignedTo.join(", "),
+          assignedTo,
           dueDate,
           description,
           link: link.trim(),

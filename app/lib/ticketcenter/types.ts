@@ -40,7 +40,8 @@ export interface NewTicketInput {
   types: TicketType[];
   project: string;
   status?: TicketStatus;
-  assignedTo?: string;
+  /** Already normalised (see normalizeAssignees); validateNewTicket does that. */
+  assignedTo?: string[];
   dueDate?: string;
   description?: string;
   link?: string;
@@ -115,11 +116,18 @@ export function parseTypes(cell: string): TicketType[] {
   return out;
 }
 
+/**
+ * A list of names as the Sheet means it: trimmed, without blanks or the "TBD"
+ * placeholder, each name once. Reads go through it (parseAssignees) and so does
+ * every list before it is checked and written, so a write never holds a name
+ * the next read would drop.
+ */
+export function normalizeAssignees(names: readonly string[]): string[] {
+  return [...new Set(names.map((s) => s.trim()).filter((s) => s && !TBD_RE.test(s)))];
+}
+
 export function parseAssignees(cell: string): string[] {
-  return cell
-    .split(",")
-    .map((s) => s.trim())
-    .filter((s) => s && !TBD_RE.test(s));
+  return normalizeAssignees(cell.split(","));
 }
 
 /** Sheet row (columns A..M) -> Ticket. Trims every cell; unknown Status falls back to Backlog. */

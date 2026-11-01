@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { ORG_TYPES } from "@/app/lib/ticketcenter/outreach";
+import { isPlainEmail, linkParts } from "@/app/lib/ticketcenter/validate";
 import Avatar from "./Avatar";
 
 const addInputCls =
@@ -156,15 +157,34 @@ export function Pill({ label, color, className = "" }: { label: string; color: s
   );
 }
 
-/** Renders http(s) values as links, anything else ("Instagram", "website") as text. */
+/**
+ * Renders a value as typed, with each http(s) URL in it turned into a link in
+ * place ("Instagram: instagram.com/studio (DM only)"). Anything else stays text.
+ */
 export function LinkOrText({ value }: { value: string }) {
   if (!value) return <>—</>;
-  if (/^https?:\/\//i.test(value)) {
-    return (
-      <a href={value} target="_blank" rel="noopener noreferrer" className="break-all underline hover:text-[#3F3A36]/70">
-        {value.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "")}
-      </a>
-    );
-  }
-  return <>{value}</>;
+  return (
+    <span className="whitespace-pre-line">
+      {linkParts(value).map((part, i) =>
+        part.href ? (
+          <a key={i} href={part.href} target="_blank" rel="noopener noreferrer" className="break-all underline hover:text-[#3F3A36]/70">
+            {part.href.replace(/^https?:\/\/(www\.)?/i, "").replace(/\/$/, "")}
+          </a>
+        ) : (
+          <Fragment key={i}>{part.text}</Fragment>
+        )
+      )}
+    </span>
+  );
+}
+
+/** A mailto link for a plain address, used verbatim; anything else typed in the Sheet as text. */
+export function EmailOrText({ value }: { value: string }) {
+  if (!value) return <>—</>;
+  if (!isPlainEmail(value)) return <>{value}</>;
+  return (
+    <a href={`mailto:${value}`} className="underline">
+      {value}
+    </a>
+  );
 }

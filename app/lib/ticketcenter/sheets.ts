@@ -1,7 +1,7 @@
 import "server-only";
 import { google, type sheets_v4 } from "googleapis";
+import { locateRows, RowMovedError, type Located } from "./sheet-rows";
 import {
-  parseAssignees,
   rowToTicket,
   type NewTicketInput,
   type Ticket,
@@ -44,6 +44,41 @@ function sheetId(): string {
   return id;
 }
 
+export interface KeyCheck {
+  tab: string;
+  sheetRow: number;
+  key: string;
+  /** Whether the trimmed key cell still names this record; exact match by default. */
+  matches?: (cell: string) => boolean;
+}
+
+/**
+ * Re-reads column A of every row about to be written and throws RowMovedError
+ * unless each still holds the record's key, then writes. Someone sorting,
+ * inserting or deleting rows in the Sheet between our read and our write would
+ * otherwise make us overwrite a neighbour. This narrows that window to the gap
+ * between the two calls below; it cannot close it.
+ */
+export async function guardedBatchUpdate(
+  spreadsheetId: string,
+  checks: KeyCheck[],
+  data: sheets_v4.Schema$ValueRange[]
+): Promise<void> {
+  const sheets = getSheets();
+  const res = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: checks.map((c) => `${c.tab}!A${c.sheetRow}`),
+  });
+  checks.forEach((c, i) => {
+    const cell = String(res.data.valueRanges?.[i]?.values?.[0]?.[0] ?? "").trim();
+    if (!(c.matches ? c.matches(cell) : cell === c.key)) throw new RowMovedError(c.tab, c.key);
+  });
+  await sheets.spreadsheets.values.batchUpdate({
+    spreadsheetId,
+    requestBody: { valueInputOption: "RAW", data },
+  });
+}
+
 let cache: { tickets: Ticket[]; at: number } | null = null;
 
 export function bustCache(): void {
@@ -57,30 +92,33 @@ export async function getTickets(): Promise<Ticket[]> {
   return tickets;
 }
 
-/** Uncached read. Also used internally by writes to locate rows. */
-async function readTickets(): Promise<Ticket[]> {
+/** Uncached read, each ticket with the sheet row it came from. Also used by writes. */
+async function readTicketRows(): Promise<Located<Ticket>[]> {
   const res = await getSheets().spreadsheets.values.get({
     spreadsheetId: sheetId(),
     range: TICKETS_RANGE,
   });
-  const rows = (res.data.values ?? []) as string[][];
-  const tickets: Ticket[] = [];
-  for (const row of rows) {
-    const t = rowToTicket(row);
-    if (t) tickets.push(t);
-  }
-  return tickets;
+  return locateRows((res.data.values ?? []) as string[][], rowToTicket);
 }
 
-/** Row number in the sheet (1-based, header on row 1, data from row 2). */
+async function readTickets(): Promise<Ticket[]> {
+  return (await readTicketRows()).map((r) => r.item);
+}
+
+/** The ticket and its row number in the sheet (1-based, header on row 1). */
 async function findTicketRow(
   ticketNumber: string
 ): Promise<{ rowNumber: number; ticket: Ticket }> {
-  const tickets = await readTickets();
-  const idx = tickets.findIndex((t) => t.number === ticketNumber);
-  if (idx === -1) throw new TicketNotFoundError(ticketNumber);
-  return { rowNumber: idx + 2, ticket: tickets[idx] };
+  const hit = (await readTicketRows()).find((r) => r.item.number === ticketNumber);
+  if (!hit) throw new TicketNotFoundError(ticketNumber);
+  return { rowNumber: hit.sheetRow, ticket: hit.item };
 }
+
+const ticketCheck = (sheetRow: number, ticket: Ticket): KeyCheck => ({
+  tab: "Tickets",
+  sheetRow,
+  key: ticket.number,
+});
 
 export class TicketNotFoundError extends Error {
   constructor(number: string) {
@@ -114,16 +152,10 @@ export async function updateTicketStatus(
   if (!isValidStatus(newStatus)) throw new Error(`Invalid status: ${newStatus}`);
   const { rowNumber, ticket } = await findTicketRow(ticketNumber);
   const now = new Date().toISOString();
-  await getSheets().spreadsheets.values.batchUpdate({
-    spreadsheetId: sheetId(),
-    requestBody: {
-      valueInputOption: "RAW",
-      data: [
-        { range: `Tickets!E${rowNumber}`, values: [[newStatus]] },
-        { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
-      ],
-    },
-  });
+  await guardedBatchUpdate(sheetId(), [ticketCheck(rowNumber, ticket)], [
+    { range: `Tickets!E${rowNumber}`, values: [[newStatus]] },
+    { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
+  ]);
   await appendLog(ticketNumber, "status", ticket.status, newStatus, leadName);
   bustCache();
   return { ...ticket, status: newStatus, updated: now, updatedBy: leadName };
@@ -137,16 +169,10 @@ export async function updateTicketAssignees(
   const { rowNumber, ticket } = await findTicketRow(ticketNumber);
   const now = new Date().toISOString();
   const joined = assignees.join(", ");
-  await getSheets().spreadsheets.values.batchUpdate({
-    spreadsheetId: sheetId(),
-    requestBody: {
-      valueInputOption: "RAW",
-      data: [
-        { range: `Tickets!F${rowNumber}`, values: [[joined]] },
-        { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
-      ],
-    },
-  });
+  await guardedBatchUpdate(sheetId(), [ticketCheck(rowNumber, ticket)], [
+    { range: `Tickets!F${rowNumber}`, values: [[joined]] },
+    { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
+  ]);
   await appendLog(ticketNumber, "assignees", ticket.assignedTo.join(", "), joined, leadName);
   bustCache();
   return { ...ticket, assignedTo: assignees, updated: now, updatedBy: leadName };
@@ -160,16 +186,10 @@ export async function updateTicketDueDate(
 ): Promise<Ticket> {
   const { rowNumber, ticket } = await findTicketRow(ticketNumber);
   const now = new Date().toISOString();
-  await getSheets().spreadsheets.values.batchUpdate({
-    spreadsheetId: sheetId(),
-    requestBody: {
-      valueInputOption: "RAW",
-      data: [
-        { range: `Tickets!G${rowNumber}`, values: [[dueDate]] },
-        { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
-      ],
-    },
-  });
+  await guardedBatchUpdate(sheetId(), [ticketCheck(rowNumber, ticket)], [
+    { range: `Tickets!G${rowNumber}`, values: [[dueDate]] },
+    { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
+  ]);
   await appendLog(ticketNumber, "due", ticket.dueDate, dueDate, leadName);
   bustCache();
   return { ...ticket, dueDate, updated: now, updatedBy: leadName };
@@ -182,16 +202,10 @@ export async function updateTicketNotes(
 ): Promise<Ticket> {
   const { rowNumber, ticket } = await findTicketRow(ticketNumber);
   const now = new Date().toISOString();
-  await getSheets().spreadsheets.values.batchUpdate({
-    spreadsheetId: sheetId(),
-    requestBody: {
-      valueInputOption: "RAW",
-      data: [
-        { range: `Tickets!I${rowNumber}`, values: [[notes]] },
-        { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
-      ],
-    },
-  });
+  await guardedBatchUpdate(sheetId(), [ticketCheck(rowNumber, ticket)], [
+    { range: `Tickets!I${rowNumber}`, values: [[notes]] },
+    { range: `Tickets!L${rowNumber}:M${rowNumber}`, values: [[now, leadName]] },
+  ]);
   await appendLog(ticketNumber, "notes", "", "", leadName);
   bustCache();
   return { ...ticket, notes, updated: now, updatedBy: leadName };
@@ -216,7 +230,8 @@ export async function createTicket(
     types: input.types,
     project: input.project,
     status,
-    assignedTo: parseAssignees(input.assignedTo ?? ""),
+    // validateNewTicket's normalised list: the one its Backlog rule checked.
+    assignedTo: input.assignedTo ?? [],
     dueDate: input.dueDate ?? "",
     description: input.description ?? "",
     notes: "",
@@ -266,18 +281,16 @@ export async function getMeetings(): Promise<Meeting[]> {
   return meetings;
 }
 
-async function readMeetings(): Promise<Meeting[]> {
+async function readMeetingRows(): Promise<Located<Meeting>[]> {
   const res = await getSheets().spreadsheets.values.get({
     spreadsheetId: sheetId(),
     range: MEETINGS_RANGE,
   });
-  const rows = (res.data.values ?? []) as string[][];
-  const meetings: Meeting[] = [];
-  for (const row of rows) {
-    const m = rowToMeeting(row);
-    if (m) meetings.push(m);
-  }
-  return meetings;
+  return locateRows((res.data.values ?? []) as string[][], rowToMeeting);
+}
+
+async function readMeetings(): Promise<Meeting[]> {
+  return (await readMeetingRows()).map((r) => r.item);
 }
 
 export class MeetingNotFoundError extends Error {
@@ -287,10 +300,9 @@ export class MeetingNotFoundError extends Error {
 }
 
 async function findMeetingRow(id: string): Promise<{ rowNumber: number; meeting: Meeting }> {
-  const meetings = await readMeetings();
-  const idx = meetings.findIndex((m) => m.id === id);
-  if (idx === -1) throw new MeetingNotFoundError(id);
-  return { rowNumber: idx + 2, meeting: meetings[idx] };
+  const hit = (await readMeetingRows()).find((r) => r.item.id === id);
+  if (!hit) throw new MeetingNotFoundError(id);
+  return { rowNumber: hit.sheetRow, meeting: hit.item };
 }
 
 export async function createMeeting(fields: MeetingFields, leadName: string): Promise<Meeting> {
@@ -336,16 +348,10 @@ export async function updateMeeting(
     location: patch.location ?? meeting.location,
     notes: patch.notes ?? meeting.notes,
   };
-  await getSheets().spreadsheets.values.batchUpdate({
-    spreadsheetId: sheetId(),
-    requestBody: {
-      valueInputOption: "RAW",
-      data: [
-        { range: `Meetings!B${rowNumber}:H${rowNumber}`, values: [fieldsToCells(next)] },
-        { range: `Meetings!J${rowNumber}:K${rowNumber}`, values: [[now, leadName]] },
-      ],
-    },
-  });
+  await guardedBatchUpdate(sheetId(), [{ tab: "Meetings", sheetRow: rowNumber, key: meeting.id }], [
+    { range: `Meetings!B${rowNumber}:H${rowNumber}`, values: [fieldsToCells(next)] },
+    { range: `Meetings!J${rowNumber}:K${rowNumber}`, values: [[now, leadName]] },
+  ]);
   const changed = (Object.keys(patch) as (keyof MeetingFields)[]).filter(
     (k) => patch[k] !== undefined && patch[k] !== meeting[k]
   );

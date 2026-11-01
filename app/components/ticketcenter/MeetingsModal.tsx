@@ -10,7 +10,7 @@ import {
 } from "@/app/lib/ticketcenter/meetings";
 import { isIsoDate } from "@/app/lib/ticketcenter/types";
 import { MEETING_COLORS } from "./typeColors";
-import { linkLabel } from "./MeetingDrawer";
+import { MeetingLinks } from "./MeetingDrawer";
 
 type When = "All" | "Upcoming" | "Past";
 const WHENS: When[] = ["All", "Upcoming", "Past"];
@@ -280,15 +280,7 @@ export default function MeetingsModal({
 
                     <div className="md:col-span-2 lg:col-span-1">
                       {m.link ? (
-                        <a
-                          href={m.link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="inline-block border border-[#3F3A36] bg-[#3F3A36] px-2.5 py-1 text-[11px] font-medium text-[#FFFAF6] transition hover:bg-[#3F3A36]/85"
-                        >
-                          {linkLabel(m.link)} →
-                        </a>
+                        <MeetingLinks link={m.link} compact />
                       ) : (
                         <span className="text-[11px] text-[#3F3A36]/40">No link yet</span>
                       )}

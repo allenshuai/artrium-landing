@@ -9,7 +9,7 @@ import {
   type TicketStatus,
 } from "@/app/lib/ticketcenter/types";
 import { TYPE_COLORS } from "./typeColors";
-import { splitLinks } from "@/app/lib/ticketcenter/validate";
+import { safeLinks } from "@/app/lib/ticketcenter/validate";
 import { isOverdue } from "./TicketCard";
 import Avatar from "./Avatar";
 
@@ -60,6 +60,7 @@ export default function TicketDrawer({
   }, [onClose]);
 
   const overdue = isOverdue(ticket);
+  const links = safeLinks(ticket.link);
 
   async function saveNotes() {
     setSaving(true);
@@ -253,12 +254,12 @@ export default function TicketDrawer({
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-[#3F3A36]/50">
-              {splitLinks(ticket.link).length > 1 ? "Links" : "Link"}
+              {links.length > 1 ? "Links" : "Link"}
             </dt>
             <dd className="mt-0.5 break-all">
-              {ticket.link ? (
+              {links.length > 0 ? (
                 <span className="flex flex-col gap-1">
-                  {splitLinks(ticket.link).map((url) => (
+                  {links.map((url) => (
                     <a
                       key={url}
                       href={url}
@@ -271,7 +272,7 @@ export default function TicketDrawer({
                   ))}
                 </span>
               ) : (
-                "—"
+                ticket.link || "—"
               )}
             </dd>
           </div>
