@@ -11,25 +11,25 @@
     "test:parsers": "rm -rf .test-build && tsc app/lib/dev/exhibition/parseGlb.test.ts app/lib/dev/exhibition/storeConfig.test.ts app/lib/exhibition/map.test.ts app/lib/exhibition/minimap.test.ts app/lib/waitlist/validation.test.ts app/lib/security/ratelimit.test.ts app/lib/map/coords.test.ts --outDir .test-build --module commonjs --target es2022 --skipLibCheck --esModuleInterop --types node && node --test '.test-build/**/*.test.js'"
   },
   "dependencies": {
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.6.1",
+    "@react-three/drei": "^10.7.9",
+    "@react-three/fiber": "^9.8.2",
     "@vercel/blob": "^2.8.0",
     "googleapis": "^178.0.0",
     "html2canvas": "^1.4.1",
-    "mapbox-gl": "^3.25.0",
+    "mapbox-gl": "^3.34.1",
     "next": "16.4.3",
-    "react": "19.2.3",
-    "react-dom": "19.2.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "server-only": "^0.0.1",
-    "three": "^0.184.0"
+    "three": "^0.186.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/mapbox-gl": "^3.4.1",
+    "@types/mapbox-gl": "^3.5.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@types/three": "^0.184.1",
+    "@types/three": "^0.186.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
