@@ -7,13 +7,18 @@ import { join } from "node:path";
 const FIXTURES = join(process.cwd(), "app", "lib", "dev", "exhibition", "__fixtures__");
 import test from "node:test";
 
-import { glbJsonChunkRange, GlbFormatError, parseGlb } from "./parseGlb";
+import { glbJsonChunkRange, GlbFormatError, MAX_DEPTH, MAX_NODES, parseGlb } from "./parseGlb";
+import { AssetFetchError, MAX_JSON_CHUNK, readRemoteGlbHead, type FetchLike } from "./remoteGlb";
 import {
+  isParseIssue,
+  MAX_ISSUES,
   PARSER_VERSION,
   validateMap,
+  type ParseIssue,
 } from "../../exhibition-map/schema";
 import {
   RESERVED_IDS,
+  issuesToStore,
   isValidImportId,
   newImportId,
   summarize,
@@ -53,7 +58,11 @@ function glb(
     accessors: [{ min: [-1, -1, -1], max: [1, 1, 1] }],
   };
 
-  let json = JSON.stringify(gltf);
+  return rawGlb(JSON.stringify(gltf));
+}
+
+/** A GLB around any JSON chunk text, well-formed or not. */
+function rawGlb(json: string): ArrayBuffer {
   while (json.length % 4 !== 0) json += " ";
   const jsonBytes = new TextEncoder().encode(json);
 
@@ -464,4 +473,377 @@ test("a published minimap must name a real variant and carry its pixel size", ()
   assert.ok(codes({ ...base, pixelWidth: null, pixelHeight: null }).includes("minimap.pixel-size"));
   // A 2:1 image over a square rectangle would stretch every marker.
   assert.ok(codes({ ...base, pixelWidth: 2000 }).includes("minimap.aspect-mismatch"));
+});
+
+// --- malformed JSON chunks --------------------------------------------------
+// The route answers GlbFormatError with 422 and anything else with 502, so a
+// malformed file must never surface as a TypeError or RangeError.
+
+/** Asserts a GlbFormatError and nothing else: a TypeError must fail the test, not pass it. */
+function assertFormatError(json: string, label: string) {
+  assert.throws(
+    () => parseGlb({ bytes: rawGlb(json) }),
+    (e: unknown) => {
+      assert.ok(e instanceof GlbFormatError, `${label}: expected GlbFormatError, got ${String(e)}`);
+      return true;
+    },
+    label
+  );
+}
+
+test("type-confused glTF JSON is a format error, never a TypeError", () => {
+  const cube = { meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }] };
+  const cases: Record<string, unknown> = {
+    "document is an array": [],
+    "document is null": null,
+    "nodes is an object": { nodes: {} },
+    "nodes is a string": { nodes: "Spawn_Main" },
+    "a node is null": { nodes: [null] },
+    "children is a string": { nodes: [{ name: "Room_main", children: "12" }, { name: "Spawn_Main" }] },
+    "a child index is a string": { nodes: [{ name: "Room_main", children: ["1"] }, { name: "Spawn_Main" }] },
+    "name is a number": { nodes: [{ name: 42 }] },
+    "translation holds a string": { nodes: [{ name: "Spawn_Main", translation: ["1", 0, 0] }] },
+    "rotation is too short": { nodes: [{ name: "Spawn_Main", rotation: [0, 0, 1] }] },
+    "matrix is too short": { nodes: [{ name: "Spawn_Main", matrix: [1, 0, 0, 1] }] },
+    "matrix is not an array": { nodes: [{ name: "Spawn_Main", matrix: "identity" }] },
+    "mesh is a string": { nodes: [{ name: "Room_main", mesh: "0" }], ...cube },
+    "meshes is an object": { nodes: [{ name: "Room_main", mesh: 0 }], meshes: {} },
+    "accessor bounds are strings": {
+      nodes: [{ name: "Room_main", mesh: 0 }],
+      ...cube,
+      accessors: [{ min: "abc", max: "def" }],
+    },
+    "scene is a string": { scene: "0", scenes: [{ nodes: [0] }], nodes: [{ name: "Spawn_Main" }] },
+    "scene nodes is a string": { scenes: [{ nodes: "0" }], nodes: [{ name: "Spawn_Main" }] },
+    "camera xmag is a string": {
+      nodes: [{ name: "Spawn_Main" }, { name: "OrthographicTopCamera", camera: 0 }],
+      cameras: [{ type: "orthographic", orthographic: { xmag: "50", ymag: 50 } }],
+    },
+  };
+  for (const [label, json] of Object.entries(cases)) assertFormatError(JSON.stringify(json), label);
+});
+
+test("an invalid JSON chunk is a format error, without echoing the parser's text", () => {
+  assertFormatError('{"nodes": [', "unterminated");
+  assertFormatError("not json at all", "not json");
+  assert.throws(() => parseGlb({ bytes: rawGlb('{"nodes": [') }), /not valid JSON/);
+});
+
+/** A single chain: node i's only child is node i + 1. */
+function chain(depth: number): string {
+  const nodes = Array.from({ length: depth + 1 }, (_, i) => ({
+    name: i === depth ? "Spawn_Main" : `Group_${i}`,
+    translation: [1, 0, 0],
+    ...(i < depth ? { children: [i + 1] } : {}),
+  }));
+  return JSON.stringify({ scenes: [{ nodes: [0] }], nodes });
+}
+
+test("nesting up to the depth cap composes; past it is a format error, not a stack overflow", () => {
+  // The deepest node the walk accepts sits MAX_DEPTH levels below its root, and
+  // every level adds 1 on x.
+  const { map } = parseGlb({ bytes: rawGlb(chain(MAX_DEPTH)) });
+  assert.equal(map.spawns[0]?.position.x, MAX_DEPTH + 1);
+
+  assertFormatError(chain(MAX_DEPTH + 1), "one level past the cap");
+  // Far deeper than the old recursive walk's call stack could follow.
+  assertFormatError(chain(MAX_NODES - 1), "a chain of every node allowed");
+});
+
+test("a file with more nodes than the cap is a format error", () => {
+  const nodes = Array.from({ length: MAX_NODES + 1 }, () => ({}));
+  assertFormatError(JSON.stringify({ nodes }), "too many nodes");
+});
+
+test("a cycle in the node graph is walked once, not forever", () => {
+  const json = JSON.stringify({
+    scenes: [{ nodes: [0] }],
+    nodes: [{ name: "Room_main", children: [1] }, { name: "Spawn_Main", children: [0] }],
+  });
+  const { map } = parseGlb({ bytes: rawGlb(json) });
+  assert.deepEqual(map.spawns.map((s) => s.id), ["Main"]);
+});
+
+test("a node listing the same child a million times is walked once, within the caps", () => {
+  // The walk used to push one stack entry per child reference before checking
+  // whether the child had been seen, so this allocated a million entries.
+  const repeats = 1_000_000;
+  const json = JSON.stringify({
+    scenes: [{ nodes: [0] }],
+    nodes: [
+      { name: "Room_main", mesh: 0, children: [...Array<number>(repeats).fill(1), 2] },
+      { name: "Spawn_Main", translation: [3, 0, 0], children: [0] },
+      { name: "Artwork_one" },
+    ],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 } }] }],
+    accessors: [{ min: [-1, -1, -1], max: [1, 1, 1] }],
+  });
+  const { map, errors } = parseGlb({ bytes: rawGlb(json) });
+  assert.deepEqual(map.spawns.map((s) => [s.id, s.position.x]), [["Main", 3]]);
+  assert.deepEqual(map.artworks.map((a) => a.id), ["one"], "children after the repeats are still reached");
+  assert.equal(map.artworks[0].roomId, "main");
+  assert.deepEqual(codes(errors), [], "repeats are not an issue");
+});
+
+test("a dangling root or child index is a reported error, and the rest still parses", () => {
+  const json = JSON.stringify({
+    scenes: [{ nodes: [0, 9, 9] }],
+    nodes: [
+      { name: "Room_main", children: [1, 7, 7, 8, 2] },
+      { name: "Spawn_Main" },
+      { name: "Artwork_one" },
+    ],
+  });
+  const { map, errors } = parseGlb({ bytes: rawGlb(json) });
+  assert.deepEqual(map.spawns.map((s) => s.id), ["Main"]);
+  assert.deepEqual(map.artworks.map((a) => a.id), ["one"], "the child after the dangling ones is reached");
+
+  const dangling = errors.filter((e) => e.code === "node.dangling-reference");
+  assert.equal(dangling.length, 2, "one issue per referrer, not per reference");
+  assert.ok(dangling.every((e) => e.level === "error"));
+  const [child, root] = dangling;
+  assert.equal(child.object, "Room_main");
+  assert.match(child.message, /Node 0 \("Room_main"\) lists 3 children past the last node \(the file has 3 nodes\): 7, 8\./);
+  assert.equal(root.object, undefined);
+  assert.match(root.message, /The scene lists 2 roots past the last node \(the file has 3 nodes\): 9\./);
+
+  // The message lists a few distinct indices, then marks that there were more.
+  const many = JSON.stringify({ nodes: [{ name: "Spawn_Main", children: [10, 11, 12, 13, 14, 15, 16] }] });
+  const [overflow] = parseGlb({ bytes: rawGlb(many) }).errors.filter((e) => e.code === "node.dangling-reference");
+  assert.match(overflow.message, /lists 7 children .*: 10, 11, 12, 13, 14, …\./);
+
+  // Nothing left to walk is still a parse with issues, not a throw.
+  const empty = parseGlb({ bytes: rawGlb(JSON.stringify({ scenes: [{ nodes: [4] }], nodes: [{ name: "Spawn_Main" }] })) });
+  assert.deepEqual(codes(empty.errors), ["bounds.unresolved", "node.dangling-reference", "spawn.missing-main"]);
+  assert.match(empty.errors.find((e) => e.code === "node.dangling-reference")!.message, /a root .*: 4\./);
+});
+
+// --- parse by URL -----------------------------------------------------------
+// The route's network rules, exercised through an injected fetch.
+
+const ASSET = "https://assets.artrium.space/Standardized-VGallery.glb";
+
+type Call = { url: string; init: RequestInit };
+
+/** A fake CDN serving `file`, recording every request. `answer` can override a response by call number. */
+function cdn(file: ArrayBuffer, answer?: (call: number, from: number, to: number) => Response | undefined) {
+  const calls: Call[] = [];
+  const fetchImpl: FetchLike = async (url, init) => {
+    calls.push({ url, init });
+    const header = new Headers(init.headers).get("range") ?? "";
+    const [, from, to] = /^bytes=(\d+)-(\d+)$/.exec(header)!.map(Number);
+    const override = answer?.(calls.length, from, to);
+    if (override) return override;
+    return new Response(file.slice(from, to + 1), {
+      status: 206,
+      headers: { "content-range": `bytes ${from}-${Math.min(to, file.byteLength - 1)}/${file.byteLength}` },
+    });
+  };
+  return { calls, fetchImpl };
+}
+
+test("a published asset is read in two range requests, both 206, with redirects refused", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const { calls, fetchImpl } = cdn(file);
+
+  const head = await readRemoteGlbHead(ASSET, fetchImpl);
+  const { length } = glbJsonChunkRange(file);
+  assert.deepEqual(
+    calls.map((c) => new Headers(c.init.headers).get("range")),
+    ["bytes=0-19", `bytes=0-${19 + length}`]
+  );
+  assert.ok(calls.every((c) => c.init.redirect === "error"), "both requests must refuse redirects");
+  assert.equal(head.filename, "Standardized-VGallery.glb");
+  assert.equal(head.totalBytes, file.byteLength);
+
+  const { map, errors } = parseGlb(head);
+  assert.deepEqual(errors, []);
+  assert.equal(map.assetUrl, ASSET);
+});
+
+test("a JSON chunk over the cap is refused before it is requested", async () => {
+  const header = new ArrayBuffer(20);
+  const view = new DataView(header);
+  view.setUint32(0, 0x46546c67, true);
+  view.setUint32(4, 2, true);
+  view.setUint32(12, MAX_JSON_CHUNK + 1, true);
+  view.setUint32(16, 0x4e4f534a, true);
+  const { calls, fetchImpl } = cdn(header);
+
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), GlbFormatError);
+  assert.equal(calls.length, 1, "the JSON chunk must never be fetched");
+});
+
+test("either request answered with anything but 206 is refused", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const whole = () => new Response(file, { status: 200 });
+
+  // The second request is the one that used to accept any 2xx.
+  for (const call of [1, 2]) {
+    const { fetchImpl } = cdn(file, (n) => (n === call ? whole() : undefined));
+    await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), AssetFetchError, `call ${call}`);
+  }
+  const { fetchImpl } = cdn(file, () => new Response("Not Found: bucket internal-assets-prod", { status: 404, statusText: "Not Found" }));
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), (e: Error) => {
+    assert.ok(e instanceof AssetFetchError);
+    assert.equal(e.message, "Asset host answered 404; expected 206 Partial Content.");
+    return true;
+  });
+});
+
+test("a 206 carrying more than the requested range is cut off", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const { fetchImpl } = cdn(file, (n) =>
+    n === 2 ? new Response(new Uint8Array(file.byteLength + 4096), { status: 206 }) : undefined
+  );
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), AssetFetchError);
+});
+
+test("a 206 carrying less than the requested range is the host's failure, not a format error", async () => {
+  const file = glb([{ name: "Spawn_Main" }]);
+  const { length } = glbJsonChunkRange(file);
+  const end = 19 + length;
+  const short = (body: BodyInit | null, contentRange?: string) =>
+    new Response(body, { status: 206, headers: contentRange ? { "content-range": contentRange } : {} });
+
+  const cases: [string, number, () => Response][] = [
+    ["an empty header read", 1, () => short(null)],
+    ["a zero-byte header read", 1, () => short(new Uint8Array(0), "bytes 0-19/4096")],
+    ["a cut-off header read", 1, () => short(file.slice(0, 12), `bytes 0-19/${file.byteLength}`)],
+    ["a cut-off header read without Content-Range", 1, () => short(file.slice(0, 12))],
+    ["an empty chunk read", 2, () => short(new Uint8Array(0))],
+    ["a cut-off chunk read", 2, () => short(file.slice(0, end - 3), `bytes 0-${end}/${file.byteLength}`)],
+    ["a body shorter than its own Content-Range", 2, () => short(file.slice(0, 40), "bytes 0-39/40000")],
+  ];
+  for (const [label, call, response] of cases) {
+    const { fetchImpl } = cdn(file, (n) => (n === call ? response() : undefined));
+    await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), (e: Error) => {
+      assert.ok(e instanceof AssetFetchError, `${label}: expected AssetFetchError, got ${String(e)}`);
+      assert.equal(e.message, "Asset host sent fewer bytes than were requested.");
+      return true;
+    });
+  }
+
+  // A file that really is that short: Content-Range says the range ran past its
+  // end, so the bytes are the whole file and the format check reports it.
+  const tiny = file.slice(0, 10);
+  await assert.rejects(readRemoteGlbHead(ASSET, cdn(tiny).fetchImpl), (e: Error) => {
+    assert.ok(e instanceof GlbFormatError, String(e));
+    assert.match(e.message, /shorter than 20 bytes/);
+    return true;
+  });
+  // A header that promises more JSON than the file holds.
+  const truncated = file.slice(0, end - 8);
+  const head = await readRemoteGlbHead(ASSET, cdn(truncated).fetchImpl);
+  assert.throws(() => parseGlb(head), /Truncated/);
+});
+
+test("fetch failures, redirects included, come back without their text", async () => {
+  const secret = "connect ECONNREFUSED 10.0.12.7:443";
+  const fetchImpl: FetchLike = async () => {
+    throw new TypeError("fetch failed", { cause: new Error(secret) });
+  };
+  await assert.rejects(readRemoteGlbHead(ASSET, fetchImpl), (e: Error) => {
+    assert.ok(e instanceof AssetFetchError);
+    assert.ok(!e.message.includes("10.0.12.7") && !e.message.includes("fetch failed"), e.message);
+    return true;
+  });
+});
+
+test("only https URLs on the asset host are ever fetched", async () => {
+  const { calls, fetchImpl } = cdn(glb([{ name: "Spawn_Main" }]));
+  for (const url of [
+    "http://assets.artrium.space/a.glb",
+    "https://assets.artrium.space:8443/a.glb",
+    "https://evil.example/a.glb",
+    "https://assets.artrium.space.evil.example/a.glb",
+    "https://user:pass@assets.artrium.space/a.glb",
+    "not a url",
+  ]) {
+    await assert.rejects(readRemoteGlbHead(url, fetchImpl), GlbFormatError, url);
+  }
+  assert.equal(calls.length, 0);
+});
+
+// --- stored issues ----------------------------------------------------------
+
+test("a submitted issue list must be well-formed, and only its issue fields are stored", () => {
+  const issue = { level: "warning", code: "bounds.not-a-mesh", message: "No mesh.", object: "ExhibitionBounds" };
+  assert.deepEqual(issuesToStore([]), { issues: [], dropped: 0 });
+  const two = [issue, { level: "error", code: "spawn.missing-main", message: "No spawn." }];
+  assert.deepEqual(issuesToStore(two), { issues: two, dropped: 0 });
+  assert.deepEqual(issuesToStore([{ ...issue, extra: "<script>" }])?.issues, [issue], "extra fields are dropped");
+  assert.equal(issuesToStore(Array.from({ length: MAX_ISSUES }, () => issue))?.dropped, 0, "at the cap");
+
+  for (const bad of [
+    null,
+    42,
+    "warning",
+    { ...issue, level: "fatal" },
+    { ...issue, code: 7 },
+    { ...issue, message: undefined },
+    { ...issue, object: { name: "x" } },
+    { ...issue, object: null },
+  ]) {
+    assert.equal(issuesToStore([bad]), null, JSON.stringify(bad));
+  }
+  assert.equal(issuesToStore({ 0: issue, length: 1 }), null, "array-like is not an array");
+  assert.equal(issuesToStore("[]"), null);
+  // A malformed entry past the cap is still a malformed list.
+  assert.equal(issuesToStore([...Array.from({ length: MAX_ISSUES + 5 }, () => issue), null]), null);
+});
+
+test("a list over the cap is truncated on save, errors first, with a note saying so", () => {
+  const warning = (n: number): ParseIssue => ({ level: "warning", code: "name.suspect-duplicate-suffix", message: `w${n}` });
+  const error = (n: number): ParseIssue => ({ level: "error", code: "spawn.missing-main", message: `e${n}` });
+
+  // A clean map with 600 warnings used to be refused outright.
+  const warnings = Array.from({ length: 600 }, (_, n) => warning(n));
+  const stored = issuesToStore(warnings)!;
+  assert.equal(stored.issues.length, MAX_ISSUES, "the stored list never exceeds the cap");
+  assert.ok(stored.issues.every(isParseIssue));
+  assert.equal(stored.dropped, 600 - (MAX_ISSUES - 1));
+  assert.deepEqual(stored.issues.slice(0, MAX_ISSUES - 1), warnings.slice(0, MAX_ISSUES - 1), "the first ones, in order");
+  const note = stored.issues[MAX_ISSUES - 1];
+  assert.equal(note.level, "info");
+  assert.equal(note.code, "issues.truncated");
+  assert.match(note.message, /^101 more issues not stored \(0 errors, 101 warnings\)/);
+
+  // Errors posted after the warnings are kept, in their posted order among the rest.
+  const mixed = [...warnings, error(1), error(2)];
+  const kept = issuesToStore(mixed)!;
+  assert.equal(kept.issues.length, MAX_ISSUES);
+  assert.equal(kept.dropped, mixed.length - (MAX_ISSUES - 1));
+  assert.deepEqual(kept.issues.slice(-3, -1).map((i) => i.message), ["e1", "e2"]);
+  assert.equal(kept.issues.filter((i) => i.level === "error").length, 2);
+  assert.equal(kept.issues[0].message, "w0");
+  assert.match(kept.issues[MAX_ISSUES - 1].message, /^103 more issues not stored \(0 errors, 103 warnings\)/);
+
+  // More errors than fit: the note counts the ones left out by level.
+  const flood = issuesToStore([...Array.from({ length: 520 }, (_, n) => error(n)), warning(0)])!;
+  assert.equal(flood.issues.filter((i) => i.level === "error").length, MAX_ISSUES - 1);
+  assert.match(flood.issues[MAX_ISSUES - 1].message, /^22 more issues not stored \(21 errors, 1 warning\)/);
+
+  // The hub counts only errors and warnings, so the note does not inflate either.
+  const { map } = parseGlb({ bytes: glb([{ name: "Spawn_Main" }]) });
+  const summary = summarize({ id: "abcdef1234567890", savedAt: "2026-09-23T00:00:00.000Z", map, errors: stored.issues });
+  assert.deepEqual([summary.errorCount, summary.warningCount], [0, MAX_ISSUES - 1]);
+});
+
+test("a malformed stored issue is skipped, not thrown on, when summarising", () => {
+  const { map } = parseGlb({ bytes: glb([{ name: "Spawn_Main" }]) });
+  const base = { id: "abcdef1234567890", savedAt: "2026-09-23T00:00:00.000Z", map };
+
+  // `[null]` alone used to make the hub list answer 500 until the blob was deleted.
+  const summary = summarize({
+    ...base,
+    errors: [null, 42, "error", { level: "error" }, { level: "error", code: "x", message: "y", object: {} },
+      { level: "error", code: "spawn.missing-main", message: "No spawn." },
+      { level: "warning", code: "bounds.not-a-mesh", message: "No mesh." }],
+  });
+  assert.equal(summary.errorCount, 1);
+  assert.equal(summary.warningCount, 1);
+
+  // Not even an array.
+  assert.equal(summarize({ ...base, errors: "oops" as unknown as unknown[] }).errorCount, 0);
 });

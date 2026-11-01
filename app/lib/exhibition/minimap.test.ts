@@ -4,7 +4,7 @@ import test from "node:test";
 import { minimapFrame, minimapImageSize } from "./minimap";
 import { getExhibition } from "./map";
 import { GALLERY_EXHIBITION_ID } from "../gallery-config";
-import { metresPerPixel, worldToImage, type Minimap } from "../exhibition-map/schema";
+import { ASSET_ORIGIN, metresPerPixel, validateMinimap, worldToImage, type Minimap } from "../exhibition-map/schema";
 
 // assert/strict compares with Object.is, so -0 !== 0; angles need a tolerance anyway.
 const near = (a: number, b: number, eps = 1e-9) =>
@@ -17,7 +17,7 @@ function square(zAxis: "down" | "up"): Minimap {
     source: "camera",
     pixelWidth: 1000,
     pixelHeight: 1000,
-    variants: { textured: "https://assets.artrium.space/t.png" },
+    variants: { textured: `${ASSET_ORIGIN}/t.png` },
     defaultVariant: "textured",
   };
 }
@@ -96,4 +96,32 @@ test("the published exhibition's spawn sits just below the image centre", () => 
   near(u, 0.5, 1e-6);
   near(v, (5 + 56.6) / 113.2, 1e-4);
   near(metresPerPixel(map.minimap!)!, 113.2 / 2560, 1e-6);
+});
+
+test("every minimap variant must be an image on the asset host", () => {
+  const mm = square("down");
+  const codes = (variants: Record<string, unknown>) =>
+    validateMinimap({ ...mm, variants, defaultVariant: null }).map((i) => i.code);
+
+  assert.deepEqual(codes({}), []);
+  assert.deepEqual(codes({ dark: `${ASSET_ORIGIN}/d.png`, light: `${ASSET_ORIGIN}/l.png` }), []);
+  for (const url of [
+    "http://assets.artrium.space/t.png",
+    "https://evil.example/t.png",
+    "https://assets.artrium.space:8443/t.png",
+    "/local/Textured_MiniMap.png",
+    "data:image/png;base64,AAAA",
+    "",
+    null,
+    7,
+  ]) {
+    assert.deepEqual(codes({ textured: url }), ["minimap.variant-url"], `variant ${JSON.stringify(url)}`);
+  }
+  // One bad variant is reported even when the default one is fine.
+  assert.deepEqual(
+    validateMinimap({ ...mm, variants: { textured: `${ASSET_ORIGIN}/t.png`, dark: "https://evil.example/d.png" } }).map(
+      (i) => i.code
+    ),
+    ["minimap.variant-url"]
+  );
 });

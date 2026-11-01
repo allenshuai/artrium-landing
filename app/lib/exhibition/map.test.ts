@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { getExhibition } from "./map";
-import { minimapUrlFor, modelUrlFor, GALLERY_EXHIBITION_ID } from "../gallery-config";
-import { REQUIRED_SPAWN_ID, validateMap } from "../exhibition-map/schema";
+import { galleryRouteSlug, minimapUrlFor, modelUrlFor, GALLERY_EXHIBITION_ID } from "../gallery-config";
+import { ASSET_ORIGIN, REQUIRED_SPAWN_ID, validateMap } from "../exhibition-map/schema";
 
 // The published map is what visitors get, so the file itself is under test: a
 // broken or mis-pointed commit should fail here, not on the live site.
@@ -28,7 +28,7 @@ test("the published minimap rectangle came from the camera, not a guess", () => 
 
 test("the published asset points at the CDN, never a local dev path", () => {
   const map = getExhibition(GALLERY_EXHIBITION_ID);
-  assert.ok(map?.assetUrl?.startsWith("https://assets.artrium.space/"), `got ${map?.assetUrl}`);
+  assert.ok(map?.assetUrl?.startsWith(`${ASSET_ORIGIN}/`), `got ${map?.assetUrl}`);
 });
 
 test("exhibition ids cannot escape content/exhibitions", () => {
@@ -69,10 +69,10 @@ test("the published minimap image is attached, sized, and on the CDN", () => {
   const minimap = getExhibition(GALLERY_EXHIBITION_ID)?.minimap;
   assert.ok(minimap?.defaultVariant, "the gallery needs a default minimap image");
   const url = minimap.variants[minimap.defaultVariant];
-  assert.ok(url?.startsWith("https://assets.artrium.space/"), `got ${url}`);
+  assert.ok(url?.startsWith(`${ASSET_ORIGIN}/`), `got ${url}`);
   // Every variant, not just the default: any of them may be shown.
   for (const [name, variantUrl] of Object.entries(minimap.variants)) {
-    assert.ok(variantUrl?.startsWith("https://assets.artrium.space/"), `${name} points at ${variantUrl}`);
+    assert.ok(variantUrl?.startsWith(`${ASSET_ORIGIN}/`), `${name} points at ${variantUrl}`);
   }
   // Without pixel dimensions the aspect check could not run against the camera.
   assert.equal(minimap.pixelWidth, 2560);
@@ -92,5 +92,94 @@ test("the minimap image override is dev-only too", () => {
     env.NODE_ENV = saved.env;
     if (saved.url === undefined) delete env.NEXT_PUBLIC_GALLERY_MINIMAP_URL;
     else env.NEXT_PUBLIC_GALLERY_MINIMAP_URL = saved.url;
+  }
+});
+
+test("assetUrl is null or an https URL on the asset host, nothing else", () => {
+  const map = getExhibition(GALLERY_EXHIBITION_ID)!;
+  const codes = (assetUrl: unknown) => validateMap({ ...map, assetUrl }).map((i) => i.code);
+
+  assert.deepEqual(codes(null), []);
+  assert.deepEqual(codes(`${ASSET_ORIGIN}/Standardized-VGallery.glb`), []);
+  const withoutAssetUrl: Record<string, unknown> = { ...map };
+  delete withoutAssetUrl.assetUrl;
+  assert.deepEqual(validateMap(withoutAssetUrl), [], "an absent assetUrl reads as null");
+
+  for (const bad of [
+    "http://assets.artrium.space/a.glb",
+    "https://assets.artrium.space:8443/a.glb",
+    "https://user:pass@assets.artrium.space/a.glb",
+    "https://assets.artrium.space.evil.example/a.glb",
+    "https://evil.example/a.glb",
+    "//assets.artrium.space/a.glb",
+    "/local/Standardized-VGallery.glb",
+    "javascript:alert(1)",
+    "",
+    42,
+    { href: `${ASSET_ORIGIN}/a.glb` },
+  ]) {
+    assert.deepEqual(codes(bad), ["map.asset-url"], `assetUrl ${JSON.stringify(bad)}`);
+  }
+});
+
+test("source fields are typed: strings or null, and a non-negative byte count", () => {
+  const map = getExhibition(GALLERY_EXHIBITION_ID)!;
+  const codes = (source: unknown) => validateMap({ ...map, source }).map((i) => i.code);
+
+  assert.deepEqual(codes({ filename: null, bytes: null, hash: null, url: null }), []);
+  assert.deepEqual(codes({}), [], "absent fields read as null");
+  assert.deepEqual(codes({ ...map.source, url: "https://anywhere.example/a.glb" }), [], "source.url is provenance, not a load target");
+
+  for (const [field, value] of [
+    ["url", 42],
+    ["filename", { name: "a.glb" }],
+    ["hash", ["abc"]],
+    ["bytes", "198171700"],
+    ["bytes", -1],
+  ] as const) {
+    assert.deepEqual(codes({ ...map.source, [field]: value }), ["map.source.invalid"], `${field}: ${JSON.stringify(value)}`);
+  }
+  for (const source of [null, "a.glb", [], undefined]) {
+    assert.deepEqual(codes(source), ["map.source"], `source ${JSON.stringify(source)}`);
+  }
+});
+
+test("the gallery slug comes from the server-only variable, with no default in source", () => {
+  const env = process.env as Record<string, string | undefined>;
+  const saved = { slug: env.GALLERY_ROUTE_SLUG, legacy: env.NEXT_PUBLIC_GALLERY_ROUTE_SLUG };
+  const set = (name: string, value: string | undefined) => {
+    if (value === undefined) delete env[name];
+    else env[name] = value;
+  };
+  try {
+    // Unset means no gallery route at all, not a fallback slug.
+    set("GALLERY_ROUTE_SLUG", undefined);
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", undefined);
+    assert.equal(galleryRouteSlug(), null);
+
+    // The deprecated public name still works until Vercel has the new one...
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", "legacy-slug");
+    assert.equal(galleryRouteSlug(), "legacy-slug");
+
+    // ...and the server-only name wins once it is set.
+    set("GALLERY_ROUTE_SLUG", " server-slug ");
+    assert.equal(galleryRouteSlug(), "server-slug");
+
+    // A blank value counts as unset, so the empty `GALLERY_ROUTE_SLUG=` line
+    // from .env.example, copied into .env.local, does not mask the fallback.
+    for (const blank of ["", "   ", "\n"]) {
+      set("GALLERY_ROUTE_SLUG", blank);
+      assert.equal(galleryRouteSlug(), "legacy-slug", `GALLERY_ROUTE_SLUG=${JSON.stringify(blank)}`);
+    }
+
+    // Blank everywhere is not a slug: "/exhibition/" must never open the gallery.
+    set("GALLERY_ROUTE_SLUG", "");
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", "   ");
+    assert.equal(galleryRouteSlug(), null);
+    set("GALLERY_ROUTE_SLUG", undefined);
+    assert.equal(galleryRouteSlug(), null);
+  } finally {
+    set("GALLERY_ROUTE_SLUG", saved.slug);
+    set("NEXT_PUBLIC_GALLERY_ROUTE_SLUG", saved.legacy);
   }
 });
