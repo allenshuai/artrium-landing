@@ -29,8 +29,8 @@ test("without a budget a key gets 10 attempts per 15 minutes, as before", () => 
 
 test("a budget sets the count and window for that key only", () => {
   const limiter = createRateLimiter();
-  const waitlist: Budget = { max: 60, windowMs: 15 * 60 * 1000 };
-  assert.equal(allowedOf((k) => limiter.allow(k, waitlist), "waitlist:1.2.3.4", 61), 60);
+  const wide: Budget = { max: 60, windowMs: 15 * 60 * 1000 };
+  assert.equal(allowedOf((k) => limiter.allow(k, wide), "wide:1.2.3.4", 61), 60);
   assert.equal(allowedOf((k) => limiter.allow(k), "view:1.2.3.4", 11), 10, "the same address keeps the default elsewhere");
 });
 

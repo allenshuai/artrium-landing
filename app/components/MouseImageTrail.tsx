@@ -3,7 +3,6 @@
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useTracePositions } from "../contexts/TracePositionsContext";
-import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { ARCH_IMAGE_SOURCES } from "../lib/arch-images";
 
 /** Min distance (px) cursor must move before spawning a new trace. Slow movement = no spawn. */
@@ -35,7 +34,6 @@ function pickRandom<T>(arr: T[]): T {
 }
 
 export function MouseImageTrail({ disabled = false }: { disabled?: boolean }) {
-  const { isOpen: ticketPopupOpen } = useTicketPopup();
   const [traces, setTraces] = useState<Trace[]>([]);
   const { setPositions } = useTracePositions();
   const lastSpawnRef = useRef<{ x: number; y: number; time: number } | null>(null);
@@ -74,7 +72,7 @@ export function MouseImageTrail({ disabled = false }: { disabled?: boolean }) {
 
   useEffect(() => {
     const handleMove = (e: MouseEvent) => {
-      if (ticketPopupOpen || disabled) return;
+      if (disabled) return;
       const now = Date.now();
       const { clientX, clientY } = e;
       const last = lastSpawnRef.current;
@@ -117,7 +115,7 @@ export function MouseImageTrail({ disabled = false }: { disabled?: boolean }) {
 
     window.addEventListener("mousemove", handleMove, { passive: true });
     return () => window.removeEventListener("mousemove", handleMove);
-  }, [ticketPopupOpen, disabled]);
+  }, [disabled]);
 
   return (
     <div

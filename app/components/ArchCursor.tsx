@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { useColorScheme, type ColorSchemeId } from "../contexts/ColorSchemeContext";
 
 // Full arch shape from Vector.svg (dome/arch), viewBox 0 0 192 192
@@ -17,7 +16,6 @@ const HOTSPOT_X = CURSOR_SIZE / 2;
 const HOTSPOT_Y = CURSOR_SIZE;
 
 export function ArchCursor() {
-  const { isOpen: ticketPopupOpen } = useTicketPopup();
   const { schemeId, setSchemeId } = useColorScheme();
   const [pos, setPos] = useState({ x: 0, y: 0 });
   const [visible, setVisible] = useState(false);
@@ -32,14 +30,9 @@ export function ArchCursor() {
   }, [schemeId]);
 
   useEffect(() => {
-    if (ticketPopupOpen) {
-      document.body.classList.remove("arch-cursor-active");
-      setSchemeId("default");
-      return;
-    }
     document.body.classList.add("arch-cursor-active");
     return () => document.body.classList.remove("arch-cursor-active");
-  }, [ticketPopupOpen]);
+  }, []);
 
   useEffect(() => {
     const SPEED_THRESHOLD_PX_PER_SEC = 7500;
@@ -69,7 +62,7 @@ export function ArchCursor() {
         const dt = now - last.time;
         if (dt > 0 && dist > 0) {
           const speedPxPerSec = (dist / dt) * 1000;
-          if (speedPxPerSec >= SPEED_THRESHOLD_PX_PER_SEC && !ticketPopupOpen) {
+          if (speedPxPerSec >= SPEED_THRESHOLD_PX_PER_SEC) {
             lastFastRef.current = now;
             const next = pickNextScheme();
             setSchemeId(next);
@@ -90,7 +83,7 @@ export function ArchCursor() {
       document.body.removeEventListener("mouseleave", handleLeave);
       document.body.removeEventListener("mouseenter", handleEnter);
     };
-  }, [visible, ticketPopupOpen, setSchemeId]);
+  }, [visible, setSchemeId]);
 
   useEffect(() => {
     const REVERT_AFTER_MS = 800;
@@ -122,7 +115,7 @@ export function ArchCursor() {
     return () => clearInterval(id);
   }, []);
 
-  if (ticketPopupOpen || !visible) return null;
+  if (!visible) return null;
 
   return (
     <div
