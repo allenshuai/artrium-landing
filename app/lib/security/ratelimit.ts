@@ -1,8 +1,7 @@
-// In-memory rate limit for the internal portals' auth endpoints and the public
-// waitlist. Callers namespace their own keys ("view:", "lead:", "devex:",
-// "waitlist:") so one endpoint cannot exhaust another's budget, and may pass a
-// budget of their own. Resets on cold start and is per-instance; that is
-// acceptable for shared-password internal tools and as a brake on a sign-up form.
+// In-memory rate limit for the internal portals' auth endpoints. Callers
+// namespace their own keys ("view:", "lead:", "devex:") so one endpoint cannot
+// exhaust another's budget, and may pass a budget of their own. Resets on cold
+// start and is per-instance; that is acceptable for shared-password internal tools.
 
 export type Budget = { max: number; windowMs: number };
 

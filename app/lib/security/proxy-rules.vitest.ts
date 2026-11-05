@@ -18,7 +18,7 @@ describe("portalFor", () => {
     expect(portalFor(path)?.id).toBe(id);
   });
 
-  it.each(["/", "/map", "/exhibition", "/ticketcenterx", "/api/ticketcenterx/tickets", "/dev", "/dev/exhibitions", "/api/waitlist"])(
+  it.each(["/", "/map", "/exhibition", "/ticketcenterx", "/api/ticketcenterx/tickets", "/dev", "/dev/exhibitions", "/api/map-pins"])(
     "%s belongs to no portal",
     (path) => {
       expect(portalFor(path)).toBeUndefined();

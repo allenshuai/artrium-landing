@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { TraceRect } from "../contexts/TracePositionsContext";
 import { useTracePositions } from "../contexts/TracePositionsContext";
-import { useTicketPopup } from "../contexts/TicketPopupContext";
 import { useColorScheme } from "../contexts/ColorSchemeContext";
 import { dmSans } from "../fonts";
 import { PhotoGridBackground } from "./PhotoGridBackground";
@@ -143,7 +142,6 @@ export function ArtriumLogo() {
   const containerRef = useRef<HTMLDivElement>(null);
   const logoTraceMaskId = "logo-trace-mask-artrium";
   const { positions: tracePositions } = useTracePositions();
-  const { isOpen: ticketPopupOpen } = useTicketPopup();
   const [wordmarkOverride, setWordmarkOverride] = useState<string | null>(null);
   const lastMoveRef = useRef<{ x: number; y: number; t: number } | null>(null);
   const lastChangeRef = useRef<number>(0);
@@ -273,20 +271,8 @@ export function ArtriumLogo() {
     };
   }, [updateOverlayRect]);
 
-  // When the ticket popup opens, level the logo and restore the original wordmark.
-  // Adjusted during render; the two effects below then detach their listeners.
-  const [prevTicketPopupOpen, setPrevTicketPopupOpen] = useState(ticketPopupOpen);
-  if (ticketPopupOpen !== prevTicketPopupOpen) {
-    setPrevTicketPopupOpen(ticketPopupOpen);
-    if (ticketPopupOpen) {
-      setTilt({ x: 0, y: 0 });
-      setWordmarkOverride(null);
-    }
-  }
-
-  // 3D tilt: logo leans toward cursor (gravitational feel). Disabled when ticket popup is open.
+  // 3D tilt: logo leans toward cursor (gravitational feel).
   useEffect(() => {
-    if (ticketPopupOpen) return;
     const updateTilt = () => {
       const el = containerRef.current;
       if (!el) return;
@@ -318,15 +304,10 @@ export function ArtriumLogo() {
       document.body.removeEventListener("mouseleave", onLeave);
       if (tiltRafRef.current !== null) cancelAnimationFrame(tiltRafRef.current);
     };
-  }, [ticketPopupOpen]);
+  }, []);
 
   // Swap the wordmark while cursor is moving; speed controls frequency. Stop => revert to original logo wordmark.
   useEffect(() => {
-    if (ticketPopupOpen) {
-      lastMoveRef.current = null;
-      return;
-    }
-
     const STOP_REVERT_MS = 420;
     const ALL_AT_DURATION_MS = 420;
     const MIN_SPEED_PX_S = 200; // ignore tiny jitter
@@ -394,7 +375,7 @@ export function ArtriumLogo() {
       window.removeEventListener("mousemove", onMove);
       if (rafId !== null) cancelAnimationFrame(rafId);
     };
-  }, [ticketPopupOpen]);
+  }, []);
 
   // Add current overlay position to "revealed" only while user is dragging (not on resize/sync).
   // Adjusted during render: once recorded, a position is within the throttle of

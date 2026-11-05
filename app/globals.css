@@ -30,10 +30,6 @@ body.arch-cursor-active * {
   cursor: none !important;
 }
 
-body.arch-cursor-active .cursor-custom {
-  cursor: url("/cursor-now.svg") 17 0, pointer !important;
-}
-
 @keyframes mouse-trail-fade {
   0% {
     opacity: 1;

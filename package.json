@@ -8,14 +8,13 @@
     "start": "next start",
     "lint": "eslint",
     "test": "npm run test:parsers && vitest run",
-    "test:parsers": "rm -rf .test-build && tsc app/lib/dev/exhibition/parseGlb.test.ts app/lib/dev/exhibition/storeConfig.test.ts app/lib/exhibition/map.test.ts app/lib/exhibition/minimap.test.ts app/lib/waitlist/validation.test.ts app/lib/security/ratelimit.test.ts app/lib/map/coords.test.ts --outDir .test-build --module commonjs --target es2022 --skipLibCheck --esModuleInterop --types node && node --test '.test-build/**/*.test.js'"
+    "test:parsers": "rm -rf .test-build && tsc app/lib/dev/exhibition/parseGlb.test.ts app/lib/dev/exhibition/storeConfig.test.ts app/lib/exhibition/map.test.ts app/lib/exhibition/minimap.test.ts app/lib/security/ratelimit.test.ts app/lib/map/coords.test.ts --outDir .test-build --module commonjs --target es2022 --skipLibCheck --esModuleInterop --types node && node --test '.test-build/**/*.test.js'"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",
     "@vercel/blob": "^2.8.0",
     "googleapis": "^178.0.0",
-    "html2canvas": "^1.4.1",
     "mapbox-gl": "^3.25.0",
     "next": "16.4.3",
     "react": "19.2.3",
